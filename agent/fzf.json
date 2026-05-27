@@ -1,0 +1,10 @@
+{
+  "commands": {
+    "file": {
+      "list": "fdfind --type f --max-depth 6",
+      "action": "@{{selected}}",
+      "shortcut": "@",
+      "preview": "bat --style=numbers --color=always {{selected}} 2>/dev/null || cat {{selected}}"
+    }
+  }
+}

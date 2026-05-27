@@ -1,0 +1,33 @@
+full:
+  - scout
+  - planner
+  - builder
+  - reviewer
+  - documenter
+  - red-team
+
+plan-build:
+  - planner
+  - builder
+  - reviewer
+
+info:
+  - scout
+  - documenter
+  - reviewer
+
+frontend:
+  - planner
+  - builder
+  - bowser
+
+pi-pi:
+  - agent-expert
+  - cli-expert
+  - config-expert
+  - ext-expert
+  - keybinding-expert
+  - prompt-expert
+  - skill-expert
+  - theme-expert
+  - tui-expert

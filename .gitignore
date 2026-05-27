@@ -1,0 +1,7 @@
+agent/.pi/*
+node_modules/*
+agent/extensions/herdr-worktree/node_modules/*
+agent-sessions/*
+agent/sessions/*
+agent/auth.json
+agent/bin

@@ -1,0 +1,19 @@
+{
+  "lastChangelogVersion": "0.75.5",
+  "defaultProvider": "github-copilot",
+  "defaultModel": "gpt-5.3-codex",
+  "defaultThinkingLevel": "medium",
+  "theme": "dracula",
+  "hideThinkingBlock": true,
+  "quietStartup": true,
+  "packages": [
+    {
+      "source": "git:github.com/tmustier/pi-extensions",
+      "extensions": [
+        "files-widget/index.ts"
+      ]
+    },
+    "npm:pi-rewind",
+    "npm:pi-fzf"
+  ]
+}
