@@ -14,3 +14,5 @@
 
 - When you need to view, edit, create, or manipulate `.docx` files, you MUST use the `docx` skill.
 - `docx` skill location: `/home/perazzojoao/.pi/agent/skills/docx/SKILL.md`
+
+- By default, system prompts and newly created skills MUST be written in English.
