@@ -171,6 +171,7 @@ export default function (pi: ExtensionAPI) {
 	let sessionDir = "";
 	let contextWindow = 0;
 	let tilldoneEnabled = false;
+	let sudoExecEnabled = false;
 
 	function loadAgents(cwd: string, ctx: any) {
 		// Create session storage dir
@@ -674,9 +675,13 @@ export default function (pi: ExtensionAPI) {
 			? `\n## TillDone (task-gate compatibility)\n- The tilldone tool is enabled in this session for task tracking compliance.\n- If required by the environment, initialize tasks first with tilldone (new-list/add/toggle).\n- After that, continue delegating actual implementation work via dispatch_agent.\n`
 			: "";
 
+		const sudoExecSection = sudoExecEnabled
+			? `\n## Privileged Commands (sudo_exec)\n- The sudo_exec tool is enabled for commands that require elevated privileges.\n- This is the only exception to the no-direct-execution rule: use sudo_exec for privileged operations, passing the command without the sudo prefix.\n- Do not use sudo_exec for normal codebase exploration or implementation work; delegate that work via dispatch_agent.\n`
+			: "";
+
 		return {
 			systemPrompt: `You are a dispatcher agent. You coordinate specialist agents to accomplish tasks.
-You do NOT have direct access to the codebase. You MUST delegate all work through
+You do NOT have direct access to the codebase, except sudo_exec when enabled for privileged commands. You MUST delegate implementation work through
 agents using the dispatch_agent tool.
 
 ## Active Team: ${activeTeamName}
@@ -690,9 +695,9 @@ You can ONLY dispatch to agents listed below. Do not attempt to dispatch to agen
 - Review results and dispatch follow-up agents if needed
 - If a task fails, try a different agent or adjust the task description
 - Summarize the outcome for the user
-${tilldoneSection}
+${tilldoneSection}${sudoExecSection}
 ## Rules
-- NEVER try to read, write, or execute code directly — you have no such tools
+- NEVER try to read, write, or execute code directly — you have no such tools, except sudo_exec when enabled for privileged commands
 - ALWAYS use dispatch_agent for implementation work
 - You can chain agents: use scout to explore, then builder to implement
 - You can dispatch the same agent multiple times with different tasks
@@ -733,9 +738,15 @@ ${agentCatalog}`,
 		}
 
 		// Lock down tools, but keep tilldone if available to avoid deadlock with task-gate extensions.
+		// Preserve sudo_exec when already active, and allow it explicitly for the full team when registered.
 		const currentlyActive = pi.getActiveTools();
+		const allToolNames = pi.getAllTools().map(t => t.name);
 		tilldoneEnabled = currentlyActive.includes("tilldone");
-		const allowedTools = tilldoneEnabled ? ["dispatch_agent", "tilldone"] : ["dispatch_agent"];
+		sudoExecEnabled = currentlyActive.includes("sudo_exec") ||
+			(activeTeamName.toLowerCase() === "full" && allToolNames.includes("sudo_exec"));
+		const allowedTools = ["dispatch_agent"];
+		if (tilldoneEnabled) allowedTools.push("tilldone");
+		if (sudoExecEnabled) allowedTools.push("sudo_exec");
 		pi.setActiveTools(allowedTools);
 
 		_ctx.ui.setStatus("agent-team", `Team: ${activeTeamName} (${agentStates.size})`);
