@@ -1,7 +1,7 @@
 {
-  "lastChangelogVersion": "0.75.5",
-  "defaultProvider": "github-copilot",
-  "defaultModel": "gpt-5.3-codex",
+  "lastChangelogVersion": "0.76.0",
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-5.5",
   "defaultThinkingLevel": "medium",
   "theme": "dracula",
   "hideThinkingBlock": true,
