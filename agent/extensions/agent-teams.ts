@@ -719,7 +719,7 @@ export default function (pi: ExtensionAPI) {
 		const teamMembers = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
 
 		const tilldoneSection = tilldoneEnabled
-			? `\n## TillDone (task-gate compatibility)\n- The tilldone tool is enabled in this session for task tracking compliance.\n- If required by the environment, initialize tasks first with tilldone (new-list/add/toggle).\n- After that, continue delegating actual implementation work via dispatch_agent.\n`
+			? `\n## TillDone (optional task tracking)\n- The tilldone tool is available in this session, but you have autonomy to decide when it is useful.\n- Prefer using tilldone for longer prompts that involve more complex implementation work, bug fixes, or multi-step coordination.\n- Simple tasks do not need tilldone; proceed directly with dispatch_agent when task tracking would add little value.\n- Exception: if the user specifically asks you to use tilldone, you must use it.\n- Continue delegating actual implementation work via dispatch_agent.\n`
 			: "";
 
 		const sudoExecSection = sudoExecEnabled
