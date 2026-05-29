@@ -1,0 +1,61 @@
+{
+  "skill": "git-master-workflows",
+  "scope": "Only the two requested scenarios: worktrees and selective staging with a sensitive file. No PR, push, or other workflow evals are included.",
+  "evals": [
+    {
+      "id": "worktree-with-native-fallback",
+      "scenario": "worktrees",
+      "prompt": "Estou em um repositório git e quero começar a correção do bug de login em uma worktree separada. Se Herdr/Pi não estiver disponível, use o fallback nativo do git worktree. Não feche a sessão/pane atual.",
+      "expected_output": "The assistant should load and apply the worktree workflow, run or propose the repository preflight and safety checks, derive the source checkout from git rev-parse --show-toplevel, choose Herdr/Pi only when available and safe, preserve the current pane/session by default, and otherwise create a native git worktree from an explicit base ref with a clear branch and sibling worktree path. It should verify the new worktree status and mention dependency detection without installing anything unless explicitly approved.",
+      "assertions": {
+        "must_include": [
+          "loads or follows workflows/herdr-worktree.md",
+          "runs or proposes repo_preflight.py and safety_check.py before creating the worktree",
+          "derives SOURCE_CHECKOUT with git rev-parse --show-toplevel",
+          "does not assume master as the base when the default/base branch is unspecified; derives or confirms the base ref",
+          "uses Herdr/Pi integration only if HERDR_ENV/required integration is available and safe",
+          "preserves the old pane/session by default with --no-close-pane or closeOldPane: false",
+          "uses native fallback command equivalent to git worktree add -b <branch> <path> <base-ref> when Herdr/Pi is unavailable",
+          "verifies the resulting worktree with git -C <worktreePath> status --short --branch",
+          "does not delete, prune, overwrite, or close worktrees/panes without explicit approval"
+        ],
+        "must_not_include": [
+          "gh pr create",
+          "git push",
+          "force-push",
+          "git worktree prune",
+          "remove an existing worktree without approval",
+          "close the current Herdr/Pi pane/session without explicit approval"
+        ]
+      }
+    },
+    {
+      "id": "selective-staging-sensitive-file",
+      "scenario": "staging seletivo com arquivo sensível",
+      "prompt": "O Builder terminou mudanças misturadas: src/auth/login.ts, tests/login.test.ts e .env.local foram alterados. Quero um commit só com a correção de login e testes. Faça staging seletivo com segurança; não exponha segredos.",
+      "expected_output": "The assistant should load and apply the logical commits workflow, run or propose preflight and safety checks, inspect status/name/stat information, selectively stage only the non-sensitive login source and test files for the logical commit, avoid printing the .env.local diff, and require explicit user confirmation before staging any sensitive-looking file. It should verify the staged content with cached stat/name/status and commit only the complete logical change with a short English message if verification passes, leaving the sensitive file unstaged unless the user explicitly approves staging it.",
+      "assertions": {
+        "must_include": [
+          "loads or follows workflows/logical-commits.md",
+          "runs or proposes repo_preflight.py and safety_check.py before staging",
+          "uses git status --short, git diff --stat, or git diff --name-only to inspect changes",
+          "uses path-safe staging such as git add -- src/auth/login.ts tests/login.test.ts or git add -p -- <path>",
+          "does not print the diff for .env.local or any sensitive-looking file",
+          "requires explicit user confirmation before staging .env.local",
+          "verifies staged content with git diff --cached --stat and git diff --cached --name-only before committing",
+          "keeps .env.local unstaged unless the user explicitly confirms staging it",
+          "uses a short English commit message for the login fix/tests if committing"
+        ],
+        "must_not_include": [
+          "git add .",
+          "git add -A",
+          "git diff -- .env.local",
+          "git diff --cached -- .env.local unless staging was explicitly approved",
+          "prints secret values or full sensitive-file contents",
+          "gh pr create",
+          "git push"
+        ]
+      }
+    }
+  ]
+}

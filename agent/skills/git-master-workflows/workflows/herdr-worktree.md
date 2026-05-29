@@ -1,14 +1,16 @@
-# Herdr worktree workflow
+# Worktree workflow
 
 Use this workflow before starting any feature or bugfix in an active git repository.
+
+Apply the central safety policy from `$SKILL_ROOT/SKILL.md`, especially approval requirements for destructive operations, pushes, dependency installation, and closing panes/sessions.
 
 ## 1. Inspect the current repository
 
 Run the skill preflight scripts first:
 
 ```bash
-python3 /home/perazzojoao/.pi/agent/skills/git-master-workflows/scripts/repo_preflight.py --path "$(pwd)"
-python3 /home/perazzojoao/.pi/agent/skills/git-master-workflows/scripts/safety_check.py --path "$(pwd)"
+python3 "$SKILL_ROOT/scripts/repo_preflight.py" --path "$(pwd)"
+python3 "$SKILL_ROOT/scripts/safety_check.py" --path "$(pwd)"
 ```
 
 Confirm:
@@ -28,12 +30,14 @@ SOURCE_CHECKOUT="$(git rev-parse --show-toplevel)"
 
 Do not rely on hardcoded source defaults.
 
-## 3. Choose the Herdr integration path
+## 3. Choose the worktree integration path
 
-Extension:
+Prefer the Herdr/Pi integration only when it is available and appropriate for the current session. If Herdr/Pi is unavailable, use the native git fallback in step 7.
+
+Herdr extension location, relative to the Pi agent root when installed:
 
 ```text
-/home/perazzojoao/.pi/agent/extensions/herdr-worktree/index.ts
+agent/extensions/herdr-worktree/index.ts
 ```
 
 Extension name: `pi-herdr-worktree`.
@@ -47,7 +51,7 @@ Prefer `/herdr-worktree-start` because it accepts explicit `--source`.
 
 Use `herdr_start_worktree` only when you can pass safe parameters and preserve the old pane (`closeOldPane: false`).
 
-## 4. Verify preconditions and risks
+## 4. Verify Herdr preconditions and risks
 
 Check or reason about:
 
@@ -66,7 +70,9 @@ Important behavior and risks:
 - Default safe behavior is to preserve the old pane/session with `--no-close-pane` or `closeOldPane: false`.
 - Closing an old pane/session requires explicit user approval after showing the pane/session that would be closed.
 
-## 5. Preferred command form
+If these preconditions are not met, do not use Herdr-specific commands; use native `git worktree` instead.
+
+## 5. Preferred Herdr command form
 
 Use explicit source and safe pane behavior by default:
 
@@ -92,7 +98,7 @@ Recommendations:
 - `--no-close-pane`: include by default. Omit it only after explicit user approval to close the old pane/session.
 - `--no-copy-extension`: use only when copying the extension into the worktree is not desired.
 
-## 6. Tool form when command form is unavailable
+## 6. Herdr tool form when command form is unavailable
 
 `herdr_start_worktree` parameters:
 
@@ -108,12 +114,45 @@ Use it only when:
 - You pass the intended `base`; do not rely on `master` unless verified.
 - You set `closeOldPane: false` unless the user explicitly approved closing the old pane/session.
 
-## 7. Verify dependencies in the worktree before finalizing
+## 7. Native git worktree fallback
+
+Use this path when Herdr/Pi integration is unavailable, not appropriate, or not requested.
+
+Choose a sibling worktree path that is outside the current checkout but near the repository, for example:
+
+```bash
+SOURCE_CHECKOUT="$(git rev-parse --show-toplevel)"
+REPO_PARENT="$(dirname "$SOURCE_CHECKOUT")"
+WORKTREE_PATH="$REPO_PARENT/<repo-name>-<short-topic>"
+```
+
+Create the worktree from the intended base with an explicit branch:
+
+```bash
+git fetch --all --prune
+git worktree add -b <branch> "$WORKTREE_PATH" <base-ref>
+```
+
+If the branch already exists locally and the user wants to reuse it, use:
+
+```bash
+git worktree add "$WORKTREE_PATH" <branch>
+```
+
+After creation:
+
+```bash
+git -C "$WORKTREE_PATH" status --short --branch
+```
+
+Do not delete, prune, move, or overwrite existing worktrees/branches without explicit user approval under the central safety policy.
+
+## 8. Verify dependencies in the worktree before finalizing
 
 After the worktree path is known, run dependency detection in the new worktree:
 
 ```bash
-python3 /home/perazzojoao/.pi/agent/skills/git-master-workflows/scripts/dependency_check.py --path <worktreePath>
+python3 "$SKILL_ROOT/scripts/dependency_check.py" --path <worktreePath>
 ```
 
 The check is heuristic. If dependencies appear missing:
@@ -124,15 +163,15 @@ The check is heuristic. If dependencies appear missing:
 4. Only after approval, run:
 
 ```bash
-python3 /home/perazzojoao/.pi/agent/skills/git-master-workflows/scripts/dependency_check.py --path <worktreePath> --install --yes
+python3 "$SKILL_ROOT/scripts/dependency_check.py" --path <worktreePath> --install --yes
 ```
 
 5. If multiple ecosystems are detected, a command is ambiguous, or the install has unusual side effects, ask the user to choose/confirm the command before running anything.
 6. Never use `sudo`.
 
-## 8. Internal behavior to understand
+## 9. Internal Herdr behavior to understand
 
-The extension uses commands equivalent to:
+The Herdr extension uses commands equivalent to:
 
 ```bash
 herdr worktree create --cwd <sourceCheckout> --base <base> --focus --json [--branch] [--label]

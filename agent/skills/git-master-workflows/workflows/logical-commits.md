@@ -4,9 +4,11 @@ Use this workflow when coordinating with Builder to commit completed implementat
 
 Git master coordinates commits; Builder edits code. Git master does not edit source code directly.
 
+Apply the central safety policy from `$SKILL_ROOT/SKILL.md`, especially secret handling, path-safe staging, commit-message guidance, and push approval gates.
+
 ## 1. Establish the logical plan
 
-Before committing, coordinate with Builder to identify complete logical steps, for example:
+Before committing, coordinate with Builder or the user to identify complete logical steps, for example:
 
 - One commit for scaffolding or setup.
 - One commit for a complete feature slice.
@@ -20,11 +22,11 @@ Do not create partial commits that leave the repository knowingly broken unless 
 Run:
 
 ```bash
-python3 /home/perazzojoao/.pi/agent/skills/git-master-workflows/scripts/repo_preflight.py --path "$(pwd)"
-python3 /home/perazzojoao/.pi/agent/skills/git-master-workflows/scripts/safety_check.py --path "$(pwd)"
+python3 "$SKILL_ROOT/scripts/repo_preflight.py" --path "$(pwd)"
+python3 "$SKILL_ROOT/scripts/safety_check.py" --path "$(pwd)"
 ```
 
-Resolve or explicitly acknowledge blockers before staging. Do not print diffs for sensitive-looking paths such as `.env*`, `*.pem`, `*.key`, `id_rsa*`, credentials, or secrets.
+Resolve or explicitly acknowledge blockers before staging. Do not print diffs for sensitive-looking paths.
 
 ## 3. Inspect changes after Builder work
 
@@ -49,7 +51,7 @@ git add -p -- <path>
 
 Avoid staging unrelated files. If generated files, lockfiles, formatting-only changes, environment files, key material, credentials, or secret-looking files appear, verify whether they belong to the current logical commit.
 
-Sensitive-looking files require explicit confirmation before staging, and their diffs must not be printed.
+Sensitive-looking files require explicit user confirmation before staging, and their diffs must not be printed.
 
 ## 5. Verify staged content
 
@@ -65,7 +67,11 @@ Use `git diff --cached -- <path>` only for non-sensitive files. Confirm the stag
 
 ## 6. Commit with short English messages
 
-Commit messages are always short and in English. Prefer imperative mood or simple conventional style.
+Create the commit only after verifying staged content:
+
+```bash
+git commit -m "Add git master workflow skill"
+```
 
 Good examples:
 
@@ -77,26 +83,11 @@ feat: add draft PR workflow
 fix: handle missing Herdr pane id
 ```
 
-Avoid long, vague, or non-English messages.
-
-Create the commit only after verifying staged content:
-
-```bash
-git commit -m "Add git master workflow skill"
-```
-
 Repeat inspection, selective staging, verification, and commit for each complete logical step.
 
 ## 7. Push policy
 
-Any `git push` requires explicit user approval immediately before pushing. Before asking for approval, show:
-
-- Remote and branch/refspec.
-- Commits that will be pushed, for example `git log --oneline <upstream>..HEAD`.
-- Diff summary, for example `git diff --stat <upstream>...HEAD`.
-- Result of `safety_check.py`.
-
-Never force-push without separate explicit approval.
+Follow the central safety policy for pushes. In short: no `git push` without explicit user approval immediately before pushing, after showing the target remote/ref, commits, diff summary, and safety-check result. Never force-push without separate explicit user approval.
 
 ## 8. Report results
 
