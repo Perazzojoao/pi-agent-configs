@@ -6,13 +6,13 @@ Generic `gh-cli` examples are syntax references only; they do not override this 
 
 ## 1. Require explicit approval gates
 
-Do not create the Pull Request until both approvals are explicit and verifiable:
+Do not create the Pull Request until all required approvals are explicit and verifiable:
 
 1. Reviewer approval: record who/what approved and the exact approval signal (for example, a Reviewer message saying `approved for draft PR`).
-2. User approval: record the user's exact approval to create the Draft PR.
+2. Final user approval after preview: immediately before PR creation, show the user the complete planned PR content (title and full body) and ask for approval to create that PR. Use the same final confirmation to request creation approval (for example via `ask_user_question` when available through the dispatcher). Record the user's exact approval.
 3. Ready/non-draft override, only if applicable: record the user's exact request for a non-draft/ready-for-review PR. Without this recorded override, the final PR creation command must include `--draft`.
 
-If either approval is missing or ambiguous, stop and request it.
+If any required approval is missing or ambiguous, stop and request it. The PR must not be created until the user has seen the final title/body and explicitly approved creation.
 
 ## 2. Run preflight checks
 
@@ -76,15 +76,16 @@ Use this Markdown format by default:
 Description (Optional)
 
 ## Changes
+
 1. Change 1 (short title)
-  - Description of the modification
+   - Description of the modification
 2. Change 2
-  - Description of the modification
+   - Description of the modification
 ```
 
 Fill the template with the actual title, optional description, and summarized changes. Preserve the structure.
 
-Write the body to a temporary Markdown file and use `--body-file`. Avoid interpolating multiline Markdown directly into a shell command.
+Write the body to a temporary Markdown file and use `--body-file`. Avoid interpolating multiline Markdown directly into a shell command. The body file must contain exactly the body shown to the user in the final preview, except for any edits the user requests and then approves in a new final preview.
 
 Example:
 
@@ -101,16 +102,32 @@ cat > "$PR_BODY_FILE" <<'EOF'
 EOF
 ```
 
-## 6. Create the Draft PR
+## 6. Preview and request final creation approval
+
+Immediately before creating any PR, show the user the complete planned PR content and ask for final approval to create that exact PR. This preview is mandatory for Draft and ready/non-draft PRs.
+
+Display:
+
+- Repo, base branch, and head branch.
+- Draft status (`Draft` by default, or `Ready for review` only when an explicit ready/non-draft override was recorded).
+- The exact PR title.
+- The complete PR body exactly as it will be written to `--body-file`.
+
+Ask for final creation approval in the same message/request that displays the title and body (for example via `ask_user_question` when available through the dispatcher). If the user asks for edits, update the title/body, show the complete revised title/body again, and request final approval again. Do not create the PR until the user has seen the final title/body and explicitly approved creation.
+
+## 7. Create the Draft PR
 
 Before running the final command, perform this safety checklist:
 
-- Confirm Reviewer approval and user approval are recorded.
+- Confirm Reviewer approval is recorded.
+- Confirm final user approval after title/body preview is recorded.
+- Confirm the body file contains the same body that the user approved in the final preview.
 - Confirm the intended command is the final `gh pr create --draft` command.
+- Confirm the command uses explicit `--repo`, `--base`, `--head`, `--title`, and `--body-file` flags.
 - Confirm the command contains `--draft`.
 - If the command does not contain `--draft`, stop. Only continue without `--draft` when the user's explicit ready/non-draft override was recorded in step 1; otherwise correct the command by adding `--draft`.
 
-After Reviewer and user approval, create the PR in Draft mode with explicit repo/base/head and body file:
+After Reviewer approval and final user approval, create the PR in Draft mode with explicit repo/base/head and body file:
 
 ```bash
 gh pr create --repo "$REPO" --base "$BASE" --head "$HEAD" --draft --title "<short title>" --body-file "$PR_BODY_FILE"
@@ -123,12 +140,12 @@ gh -h
 gh help pr create
 ```
 
-## 7. Report results
+## 8. Report results
 
 After creation, report:
 
 - PR URL.
 - Draft status.
 - Repo, base branch, and head branch.
-- The recorded Reviewer approval and user approval.
+- The recorded Reviewer approval and final user approval after title/body preview.
 - Any follow-up needed from Reviewer or user.
