@@ -5,3 +5,7 @@ agent-sessions/*
 agent/sessions/*
 agent/auth.json
 agent/bin
+
+# Local Pi runtime/session files
+.pi/*
+agent/agents/.pi/*

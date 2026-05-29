@@ -3,29 +3,32 @@
   "scope": "Only the two requested scenarios: worktrees and selective staging with a sensitive file. No PR, push, or other workflow evals are included.",
   "evals": [
     {
-      "id": "worktree-with-native-fallback",
+      "id": "worktree-with-pi-worktrees",
       "scenario": "worktrees",
-      "prompt": "Estou em um repositório git e quero começar a correção do bug de login em uma worktree separada. Se Herdr/Pi não estiver disponível, use o fallback nativo do git worktree. Não feche a sessão/pane atual.",
-      "expected_output": "The assistant should load and apply the worktree workflow, run or propose the repository preflight and safety checks, derive the source checkout from git rev-parse --show-toplevel, choose Herdr/Pi only when available and safe, preserve the current pane/session by default, and otherwise create a native git worktree from an explicit base ref with a clear branch and sibling worktree path. It should verify the new worktree status and mention dependency detection without installing anything unless explicitly approved.",
+      "prompt": "Estou em um repositório git e quero começar a correção do bug de login em uma worktree separada usando a extensão Pi Worktrees. Não feche a sessão/pane atual.",
+      "expected_output": "The assistant should load and apply the Pi Worktrees workflow, confirm prerequisites for the Pi Worktrees and pi-cwd extensions, explain that /wt-create has no explicit base-ref parameter and may copy untracked files, choose a clear branch name, and use only the extension slash commands for worktree operations. It should create or propose creating the worktree with /wt-create <branch-name>, rely on extension output/footer state for CWD restoration, and avoid direct git worktree/branch/checkout commands.",
       "assertions": {
         "must_include": [
-          "loads or follows workflows/herdr-worktree.md",
-          "runs or proposes repo_preflight.py and safety_check.py before creating the worktree",
-          "derives SOURCE_CHECKOUT with git rev-parse --show-toplevel",
-          "does not assume master as the base when the default/base branch is unspecified; derives or confirms the base ref",
-          "uses Herdr/Pi integration only if HERDR_ENV/required integration is available and safe",
-          "preserves the old pane/session by default with --no-close-pane or closeOldPane: false",
-          "uses native fallback command equivalent to git worktree add -b <branch> <path> <base-ref> when Herdr/Pi is unavailable",
-          "verifies the resulting worktree with git -C <worktreePath> status --short --branch",
-          "does not delete, prune, overwrite, or close worktrees/panes without explicit approval"
+          "loads or follows workflows/pi-worktree.md",
+          "confirms the Pi Worktrees extension and pi-cwd prerequisite",
+          "uses /wt-create <branch-name> for worktree creation",
+          "mentions that /wt-create has no explicit base-ref parameter",
+          "mentions that untracked files may be copied automatically on create",
+          "uses /wt-switch <branch-name> or /wt-switch <default-branch> for switching/restoring CWD",
+          "uses /wt-merge [<branch-name>] for merge when requested",
+          "uses /wt-cleanup [<branch-name>] for cleanup when explicitly approved",
+          "does not delete, cleanup, or close worktrees/panes without explicit approval"
         ],
         "must_not_include": [
           "gh pr create",
           "git push",
           "force-push",
+          "git worktree add",
           "git worktree prune",
+          "git branch",
+          "git checkout",
           "remove an existing worktree without approval",
-          "close the current Herdr/Pi pane/session without explicit approval"
+          "close the current Pi pane/session without explicit approval"
         ]
       }
     },

@@ -1,7 +1,7 @@
 ---
 name: git-master-workflows
-description: Safe Git master workflows for organizing changes into logical commits, starting Herdr or native git worktrees, creating draft PRs, and coordinating user approval gates. Use for git worktree setup, logical/selective commits, draft Pull Requests, organizing messy changes, staging decisions, safe push approval, or repo preflight/safety checks.
-compatibility: Requires git; gh CLI for Pull Requests; Herdr/Pi environment optional for herdr-worktree integration; Python 3 for helper scripts.
+description: Safe Git master workflows for organizing changes into logical commits, starting Pi Worktrees extension worktrees, creating draft PRs, and coordinating user approval gates. Use for Pi Worktrees setup, logical/selective commits, draft Pull Requests, organizing messy changes, staging decisions, safe push approval, or repo preflight/safety checks.
+compatibility: Requires git; gh CLI for Pull Requests; Pi Worktrees extension for pi-worktree workflow; Python 3 for helper scripts.
 ---
 
 # Git master workflows
@@ -33,7 +33,7 @@ Workflow files are under `$SKILL_ROOT/workflows/` and scripts are under `$SKILL_
 
 All workflow files inherit this policy. If a workflow omits a detail, apply this section.
 
-- Use only git, gh-cli, Herdr/Pi worktree integration when available, helper scripts from this skill, and file inspection needed to understand repository state.
+- Use only git, gh-cli, the Pi Worktrees extension for worktree operations, helper scripts from this skill, and file inspection needed to understand repository state.
 - Do not force-push, hard reset, delete branches/worktrees, rewrite history, close panes/sessions, or close/delete GitHub resources without explicit user approval.
 - Any `git push` requires explicit user approval immediately before the push. Before asking, display the remote, branch/refspec, commits to be pushed, and `git diff --stat` or equivalent summary for the pushed range.
 - Before destructive, publishing, or session-closing operations, show relevant state and ask for approval.
@@ -47,7 +47,7 @@ All workflow files inherit this policy. If a workflow omits a detail, apply this
 - Write PR body text in English by default unless the user requests another language or the repository template requires another language.
 - Use path-safe commands: prefer `git add -- <path>` and include `--` before pathspecs when supported.
 - Never print diffs for sensitive files (`.env*`, `*.pem`, `*.key`, `id_rsa*`, credentials, secrets, etc.). Require explicit user confirmation before staging any sensitive-looking file.
-- If an operation can close or terminate the current Herdr/Pi pane/session, warn the user and require explicit user approval. Default to preserving panes/sessions.
+- If an operation can close or terminate the current Pi pane/session, warn the user and require explicit user approval. Default to preserving panes/sessions.
 
 ## Helper scripts
 
@@ -104,9 +104,9 @@ Load exactly one of these files when the task matches it. Load more than one onl
 
 ### Worktree before feature/bugfix
 
-Load: `$SKILL_ROOT/workflows/herdr-worktree.md`
+Load: `$SKILL_ROOT/workflows/pi-worktree.md`
 
-Use when starting a feature or bugfix in an active git repo. It contains the full Herdr worktree procedure plus the native `git worktree` fallback for environments without Herdr/Pi integration.
+Use when starting a feature or bugfix in an active git repo with the Pi Worktrees extension. It contains the slash-command workflow for `/wt-create`, `/wt-switch`, `/wt-merge`, and `/wt-cleanup`.
 
 ### Logical commits with Builder
 
