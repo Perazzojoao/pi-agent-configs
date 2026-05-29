@@ -8,7 +8,8 @@
  *
  * Loads agent definitions from agents/*.md, .claude/agents/*.md, .pi/agents/*.md.
  * Teams are defined in .pi/agents/teams.yaml — on boot a select dialog lets
- * you pick which team to work with. Only team members are available for dispatch.
+ * you pick which team to work with. Visible team members are available for
+ * dispatch, plus global hidden agents such as git-master when defined.
  *
  * Commands:
  *   /agents-team          — switch active team
@@ -51,8 +52,14 @@ interface AgentState {
 
 // ── Display Name Helper ──────────────────────────
 
+const GLOBAL_HIDDEN_AGENT_NAMES = new Set(["git-master"]);
+
 function displayName(name: string): string {
 	return name.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
+function isGlobalHiddenAgent(name: string): boolean {
+	return GLOBAL_HIDDEN_AGENT_NAMES.has(name.toLowerCase());
 }
 
 // ── Teams YAML Parser ────────────────────────────
@@ -164,6 +171,7 @@ function scanAgentDirs(cwd: string, globalAgentsDir: string): AgentDef[] {
 
 export default function (pi: ExtensionAPI) {
 	const agentStates: Map<string, AgentState> = new Map();
+	const hiddenAgentStates: Map<string, AgentState> = new Map();
 	let allAgentDefs: AgentDef[] = [];
 	let teams: Record<string, string[]> = {};
 	let activeTeamName = "";
@@ -188,6 +196,7 @@ export default function (pi: ExtensionAPI) {
 
 		// Load all agent definitions (project + global)
 		allAgentDefs = scanAgentDirs(cwd, globalAgentsDir);
+		hiddenAgentStates.clear();
 
 		// Load teams.yaml with precedence: project first, then global
 		const projectTeamsPath = join(cwd, ".pi", "agents", "teams.yaml");
@@ -209,6 +218,39 @@ export default function (pi: ExtensionAPI) {
 		}
 	}
 
+	function createAgentState(def: AgentDef): AgentState {
+		const key = def.name.toLowerCase().replace(/\s+/g, "-");
+		const sessionFile = join(sessionDir, `${key}.json`);
+		return {
+			def,
+			status: "idle",
+			task: "",
+			toolCount: 0,
+			elapsed: 0,
+			lastWork: "",
+			contextPct: 0,
+			sessionFile: existsSync(sessionFile) ? sessionFile : null,
+			runCount: 0,
+		};
+	}
+
+	function getResolvedAgentDef(name: string): AgentDef | undefined {
+		return allAgentDefs.find(d => d.name.toLowerCase() === name.toLowerCase());
+	}
+
+	function getHiddenAgentState(agentName: string): AgentState | undefined {
+		const def = getResolvedAgentDef(agentName);
+		if (!def || !isGlobalHiddenAgent(def.name)) return undefined;
+
+		const key = def.name.toLowerCase();
+		let state = hiddenAgentStates.get(key);
+		if (!state) {
+			state = createAgentState(def);
+			hiddenAgentStates.set(key, state);
+		}
+		return state;
+	}
+
 	function activateTeam(teamName: string) {
 		activeTeamName = teamName;
 		const members = teams[teamName] || [];
@@ -217,20 +259,8 @@ export default function (pi: ExtensionAPI) {
 		agentStates.clear();
 		for (const member of members) {
 			const def = defsByName.get(member.toLowerCase());
-			if (!def) continue;
-			const key = def.name.toLowerCase().replace(/\s+/g, "-");
-			const sessionFile = join(sessionDir, `${key}.json`);
-			agentStates.set(def.name.toLowerCase(), {
-				def,
-				status: "idle",
-				task: "",
-				toolCount: 0,
-				elapsed: 0,
-				lastWork: "",
-				contextPct: 0,
-				sessionFile: existsSync(sessionFile) ? sessionFile : null,
-				runCount: 0,
-			});
+			if (!def || isGlobalHiddenAgent(def.name)) continue;
+			agentStates.set(def.name.toLowerCase(), createAgentState(def));
 		}
 
 		// Auto-size grid columns based on team size
@@ -341,10 +371,15 @@ export default function (pi: ExtensionAPI) {
 		ctx: any,
 	): Promise<{ output: string; exitCode: number; elapsed: number }> {
 		const key = agentName.toLowerCase();
-		const state = agentStates.get(key);
+		const state = agentStates.get(key) || getHiddenAgentState(key);
 		if (!state) {
+			const available = Array.from(agentStates.values()).map(s => displayName(s.def.name));
+			for (const hiddenName of GLOBAL_HIDDEN_AGENT_NAMES) {
+				const def = getResolvedAgentDef(hiddenName);
+				if (def) available.push(`${displayName(def.name)} (global hidden)`);
+			}
 			return Promise.resolve({
-				output: `Agent "${agentName}" not found. Available: ${Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ")}`,
+				output: `Agent "${agentName}" not found. Available: ${available.join(", ")}`,
 				exitCode: 1,
 				elapsed: 0,
 			});
@@ -610,7 +645,9 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			const options = teamNames.map(name => {
-				const members = teams[name].map(m => displayName(m));
+				const members = teams[name]
+					.filter(m => !isGlobalHiddenAgent(m))
+					.map(m => displayName(m));
 				return `${name} — ${members.join(", ")}`;
 			});
 
@@ -666,10 +703,18 @@ export default function (pi: ExtensionAPI) {
 	// ── System Prompt Override ───────────────────
 
 	pi.on("before_agent_start", async (_event, _ctx) => {
-		// Build dynamic agent catalog from active team only
-		const agentCatalog = Array.from(agentStates.values())
+		// Build dynamic agent catalog from visible active team members plus global hidden agents.
+		const visibleAgentCatalog = Array.from(agentStates.values())
 			.map(s => `### ${displayName(s.def.name)}\n**Dispatch as:** \`${s.def.name}\`\n${s.def.description}\n**Tools:** ${s.def.tools}`)
 			.join("\n\n");
+
+		const hiddenAgentCatalog = Array.from(GLOBAL_HIDDEN_AGENT_NAMES)
+			.map(name => getResolvedAgentDef(name))
+			.filter((def): def is AgentDef => !!def)
+			.map(def => `### ${displayName(def.name)} (global hidden)\n**Dispatch as:** \`${def.name}\`\n${def.description}\n**Tools:** ${def.tools}\n**Routing rule:** This agent is available in every team but is intentionally hidden from team widgets/status. Dispatch any task involving git, Git worktrees, GitHub, or the GitHub CLI (gh) to this agent.`)
+			.join("\n\n");
+
+		const agentCatalog = [visibleAgentCatalog, hiddenAgentCatalog].filter(Boolean).join("\n\n");
 
 		const teamMembers = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
 
@@ -698,8 +743,10 @@ agents using the dispatch_agent tool.
 Available dispatcher tools: ${dispatcherTools.map(t => `\`${t}\``).join(", ")}.${askUserQuestionEnabled ? " ask_user_question may be used only for user clarification and never for codebase access." : ""}
 
 ## Active Team: ${activeTeamName}
-Members: ${teamMembers}
-You can ONLY dispatch to agents listed below. Do not attempt to dispatch to agents outside this team.
+Visible members: ${teamMembers}
+You can ONLY dispatch to visible team agents listed below, plus any global hidden agents explicitly listed below. Do not attempt to dispatch to other agents.
+
+Global hidden agents are dispatchable in every team but are not part of the visible team roster or visual status widgets. If git-master is listed below, send it any task involving git, Git worktrees, GitHub, or the GitHub CLI (gh).
 
 ## How to Work
 - Analyze the user's request and break it into clear sub-tasks
