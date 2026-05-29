@@ -15,7 +15,18 @@ Do not create the Pull Request until all required user approvals are explicit an
 
 If any required user approval is missing or ambiguous, stop and request it. The PR must not be created until the user has seen the final title/body and explicitly approved creation.
 
-## 2. Run preflight checks
+## 2. Branch naming directive
+
+When creating a new branch for a PR, NEVER use the `pr/` prefix.
+
+Before creating or using a PR branch:
+
+- Determine whether the implementation is a feature or a bug fix.
+- Use `feat/<short-topic>` for a feature.
+- Use `fix/<short-topic>` for a bug fix.
+- If the current branch or proposed new branch starts with `pr/`, stop immediately and ask the user for a compatible branch name before continuing.
+
+## 3. Run preflight checks
 
 Run:
 
@@ -34,7 +45,7 @@ Confirm:
 - `gh` is installed and authenticated.
 - There are no unresolved safety blockers.
 
-## 3. Resolve repo, base, and head
+## 4. Resolve repo, base, and head
 
 Resolve and display these values before any push or PR creation:
 
@@ -46,7 +57,7 @@ HEAD="<owner-or-user>:<branch or branch>"
 
 Use explicit `gh pr create --draft` flags: `--repo`, `--base`, `--head`, and `--draft` by default. Do not rely on implicit repo/base/head selection. Do not omit `--draft` unless an explicit ready/non-draft override was recorded.
 
-## 4. Push only after explicit user approval
+## 5. Push only after explicit user approval
 
 If the branch is not pushed, follow the central safety policy for pushes: ask for explicit user approval immediately before pushing, after showing the target remote/ref, commits, diff summary, and safety-check result.
 
@@ -58,7 +69,7 @@ git push -u <remote> <branch>
 
 Do not force-push without separate explicit user approval.
 
-## 5. Prepare the PR title and body
+## 6. Prepare the PR title and body
 
 Use a concise PR title summarizing the change.
 
@@ -98,7 +109,7 @@ cat > "$PR_BODY_FILE" <<'EOF'
 EOF
 ```
 
-## 6. Preview and request final creation approval
+## 7. Preview and request final creation approval
 
 Immediately before creating any PR, show the user the complete planned PR content and ask for final approval to create that exact PR. This preview is mandatory for Draft and ready/non-draft PRs.
 
@@ -111,7 +122,7 @@ Display:
 
 Ask for final creation approval in the same message/request that displays the title and body. If the user asks for edits, update the title/body, show the complete revised title/body again, and request final approval again. Do not create the PR until the user has seen the final title/body and explicitly approved creation.
 
-## 7. Create the Draft PR
+## 8. Create the Draft PR
 
 Before running the final command, perform this safety checklist:
 
@@ -135,7 +146,7 @@ gh -h
 gh help pr create
 ```
 
-## 8. Report results
+## 9. Report results
 
 After creation, report:
 
