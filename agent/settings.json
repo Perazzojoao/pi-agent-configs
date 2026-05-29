@@ -4,7 +4,7 @@
   "defaultModel": "gpt-5.5",
   "defaultThinkingLevel": "medium",
   "theme": "dracula",
-  "hideThinkingBlock": true,
+  "hideThinkingBlock": false,
   "quietStartup": true,
   "packages": [
     {
@@ -15,6 +15,11 @@
     },
     "npm:pi-rewind",
     "npm:pi-fzf",
-    "npm:@neilurk12/pi-lazygit"
-  ]
+    "npm:@neilurk12/pi-lazygit",
+    "npm:@harms-haus/pi-cwd",
+    "git:github.com/harms-haus/pi-worktrees"
+  ],
+  "worktrees": {
+    "baseDir": "/home/perazzojoao/.herdr/worktrees/.pi/"
+  }
 }

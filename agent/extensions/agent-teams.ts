@@ -182,6 +182,7 @@ export default function (pi: ExtensionAPI) {
 	let tilldoneEnabled = false;
 	let sudoExecEnabled = false;
 	let askUserQuestionEnabled = false;
+	let cwdEnabled = false;
 
 	function loadAgents(cwd: string, ctx: any) {
 		// Create session storage dir
@@ -730,14 +731,19 @@ export default function (pi: ExtensionAPI) {
 			? `\n## Planner Clarification Flow (ask_user_question)\n- When the Planner agent is available and used, it should formulate implementation questions for the user when answers would help produce a more precise and complete plan.\n- Planner has autonomy to decide when to propose questions, unless the user's request explicitly says otherwise.\n- Planner must NOT try to ask the user directly; it must return the proposed questions to you, the dispatcher.\n- Review, filter, consolidate, and rephrase Planner's proposed questions before asking the user.\n- Ask only concise, relevant, and safe questions with ask_user_question. Never ask for secrets, credentials, or unrelated sensitive information.\n- After receiving answers, pass the relevant answers back to Planner so it can complete or refine the plan.\n- ask_user_question does not provide codebase access; continue to delegate all code exploration and implementation work via dispatch_agent.\n`
 			: "";
 
+		const cwdSection = cwdEnabled
+			? `\n## Current Directory (cwd)\n- The cwd tool is a limited exception only for checking or changing the current working directory according to the tool semantics.\n- cwd does not allow reading, writing, searching, or executing directly in the codebase; continue to delegate code exploration and implementation work via dispatch_agent.\n`
+			: "";
+
 		const dispatcherTools = ["dispatch_agent"];
 		if (tilldoneEnabled) dispatcherTools.push("tilldone");
 		if (sudoExecEnabled) dispatcherTools.push("sudo_exec");
 		if (askUserQuestionEnabled) dispatcherTools.push("ask_user_question");
+		if (cwdEnabled) dispatcherTools.push("cwd");
 
 		return {
 			systemPrompt: `You are a dispatcher agent. You coordinate specialist agents to accomplish tasks.
-You do NOT have direct access to the codebase, except sudo_exec when enabled for privileged commands. You MUST delegate implementation work through
+You do NOT have direct access to the codebase, except sudo_exec when enabled for privileged commands and cwd when enabled only to check or change the current directory. You MUST delegate implementation work through
 agents using the dispatch_agent tool.
 
 Available dispatcher tools: ${dispatcherTools.map(t => `\`${t}\``).join(", ")}.${askUserQuestionEnabled ? " ask_user_question may be used only for user clarification and never for codebase access." : ""}
@@ -755,9 +761,9 @@ Global hidden agents are dispatchable in every team but are not part of the visi
 - Review results and dispatch follow-up agents if needed
 - If a task fails, try a different agent or adjust the task description
 - Summarize the outcome for the user
-${tilldoneSection}${sudoExecSection}${askUserQuestionSection}
+${tilldoneSection}${sudoExecSection}${askUserQuestionSection}${cwdSection}
 ## Rules
-- NEVER try to read, write, or execute code directly — you have no such tools, except sudo_exec when enabled for privileged commands
+- NEVER try to read, write, or execute code directly — you have no such tools, except sudo_exec when enabled for privileged commands and cwd when enabled only to check or change the current directory
 - ALWAYS use dispatch_agent for implementation work
 - You can chain agents: use scout to explore, then builder to implement
 - You can dispatch the same agent multiple times with different tasks
@@ -800,16 +806,19 @@ ${agentCatalog}`,
 		// Lock down codebase tools, but keep tilldone if available to avoid deadlock with task-gate extensions.
 		// Preserve sudo_exec when already active, and allow it explicitly for the full team when registered.
 		// Preserve/enable ask_user_question when the extension tool is active or registered; it does not grant codebase access.
+		// Preserve/enable cwd when active or registered; it only allows checking/changing the current directory.
 		const currentlyActive = pi.getActiveTools();
 		const allToolNames = pi.getAllTools().map(t => t.name);
 		tilldoneEnabled = currentlyActive.includes("tilldone");
 		sudoExecEnabled = currentlyActive.includes("sudo_exec") ||
 			(activeTeamName.toLowerCase() === "full" && allToolNames.includes("sudo_exec"));
 		askUserQuestionEnabled = currentlyActive.includes("ask_user_question") || allToolNames.includes("ask_user_question");
+		cwdEnabled = currentlyActive.includes("cwd") || allToolNames.includes("cwd");
 		const allowedTools = ["dispatch_agent"];
 		if (tilldoneEnabled) allowedTools.push("tilldone");
 		if (sudoExecEnabled) allowedTools.push("sudo_exec");
 		if (askUserQuestionEnabled) allowedTools.push("ask_user_question");
+		if (cwdEnabled) allowedTools.push("cwd");
 		pi.setActiveTools(allowedTools);
 
 		_ctx.ui.setStatus("agent-team", `Team: ${activeTeamName} (${agentStates.size})`);
