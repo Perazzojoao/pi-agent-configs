@@ -1,0 +1,452 @@
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { spawnSync } from "node:child_process";
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, isAbsolute, join, resolve } from "node:path";
+
+import { gitExec, getWorktreeList, getMainWorktree } from "./git.js";
+import {
+  getMainRepoPath,
+  getCurrentBranch,
+  getCurrentWorktreePath,
+  setCurrentWorktreePath,
+  getDefaultBranch,
+  setMainRepoPath,
+} from "./state.js";
+import type { UntrackedFileInfo } from "./types.js";
+import { WORKTREE_CHANGE_TYPE } from "./types.js";
+
+// ---------------------------------------------------------------------------
+// resolveBaseDir — determine where worktrees are stored
+// ---------------------------------------------------------------------------
+
+const DEFAULT_BASE_DIR = "./.git/worktrees/";
+
+export function resolveBaseDir(mainRepoPath: string): string {
+  let baseDir = DEFAULT_BASE_DIR;
+
+  try {
+    const settingsPath = join(homedir(), ".pi", "agent", "settings.json");
+    const raw = readFileSync(settingsPath, "utf-8");
+    const settings = JSON.parse(raw) as Record<string, unknown>;
+
+    const worktrees = settings.worktrees as Record<string, unknown> | undefined;
+    if (worktrees && typeof worktrees.baseDir === "string" && worktrees.baseDir.length > 0) {
+      baseDir = worktrees.baseDir;
+    }
+  } catch {
+    // File not found or parse error — use default
+  }
+
+  let resolved: string;
+  if (isAbsolute(baseDir)) {
+    resolved = baseDir;
+  } else {
+    resolved = resolve(mainRepoPath, baseDir);
+  }
+
+  // Ensure trailing slash
+  if (!resolved.endsWith("/")) {
+    resolved += "/";
+  }
+
+  return resolved;
+}
+
+// ---------------------------------------------------------------------------
+// switchCwd — switch CWD, update state, persist entry
+// ---------------------------------------------------------------------------
+
+type CwdChangeResult = { ok: true; cwd: string } | { ok: false; error: string };
+
+const CWD_CHANGE_TIMEOUT_MS = 2_000;
+
+async function requestCwdChange(
+  pi: ExtensionAPI,
+  ctx: ExtensionCommandContext,
+  targetPath: string,
+): Promise<CwdChangeResult> {
+  return await new Promise<CwdChangeResult>((resolve) => {
+    let settled = false;
+    const settle = (result: CwdChangeResult): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(result);
+    };
+
+    const timeout = setTimeout(() => {
+      settle({ ok: false, error: "CWD integration unavailable or timed out" });
+    }, CWD_CHANGE_TIMEOUT_MS);
+
+    pi.events.emit("pi-cwd:change", {
+      path: targetPath,
+      ctx,
+      resolve: settle,
+    });
+  });
+}
+
+export function persistWorktreeState(pi: ExtensionAPI): void {
+  pi.appendEntry(WORKTREE_CHANGE_TYPE, {
+    mainRepoPath: getMainRepoPath(),
+    currentWorktreePath: getCurrentWorktreePath(),
+    currentBranch: getCurrentBranch(),
+    defaultBranch: getDefaultBranch(),
+  });
+}
+
+export async function switchCwd(
+  pi: ExtensionAPI,
+  ctx: ExtensionCommandContext,
+  targetPath: string,
+): Promise<void> {
+  if (!existsSync(targetPath)) {
+    throw new Error("Target path does not exist: " + targetPath);
+  }
+
+  const result = await requestCwdChange(pi, ctx, targetPath);
+  if (!result.ok) {
+    throw new Error(result.error);
+  }
+
+  setCurrentWorktreePath(result.cwd);
+  persistWorktreeState(pi);
+}
+
+// ---------------------------------------------------------------------------
+// detectMainRepo — find the main repo root from a worktree CWD
+// ---------------------------------------------------------------------------
+
+export async function detectMainRepo(pi: ExtensionAPI, cwd: string): Promise<string | null> {
+  const worktrees = await getWorktreeList(pi, cwd);
+  const main = getMainWorktree(worktrees);
+  return main?.path ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// hasUncommittedChanges — check for dirty working tree
+// ---------------------------------------------------------------------------
+
+export async function hasUncommittedChanges(
+  pi: ExtensionAPI,
+  worktreePath: string,
+): Promise<boolean> {
+  const result = await gitExec(pi, ["status", "--porcelain"], worktreePath);
+  return result.stdout.trim().length > 0;
+}
+
+/** Check for uncommitted tracked changes (staged or unstaged modifications to tracked files), excluding untracked files. */
+export async function hasTrackedChanges(pi: ExtensionAPI, worktreePath: string): Promise<boolean> {
+  const result = await gitExec(pi, ["status", "--porcelain"], worktreePath);
+  if (result.code !== 0) return false;
+  const lines = result.stdout.split("\n");
+  return lines.some((line) => line.length > 0 && !line.startsWith("?? "));
+}
+
+// ---------------------------------------------------------------------------
+// detectDefaultBranch — detect the default branch from git
+// ---------------------------------------------------------------------------
+
+export async function detectDefaultBranch(pi: ExtensionAPI, cwd: string): Promise<string> {
+  // Try git symbolic-ref first (works when origin is configured)
+  const symRefResult = await gitExec(pi, ["symbolic-ref", "refs/remotes/origin/HEAD"], cwd);
+  if (symRefResult.code === 0) {
+    const match = symRefResult.stdout.trim().match(/^refs\/remotes\/origin\/(.+)$/);
+    if (match && match[1]) return match[1];
+  }
+  // Fallback: get branch from main worktree
+  const worktrees = await getWorktreeList(pi, cwd);
+  const mainWt = getMainWorktree(worktrees);
+  if (mainWt && mainWt.branchName !== "detached") {
+    return mainWt.branchName;
+  }
+  // Final fallback
+  return "main";
+}
+
+// ---------------------------------------------------------------------------
+// ensureMainRepo — ensure mainRepoPath is known; detect from cwd if not set
+// ---------------------------------------------------------------------------
+
+/**
+ * Ensure mainRepoPath is known. Detects from cwd if not set.
+ * Returns true if main repo was detected, false if not in a git repo.
+ * Sets mainRepoPath on success.
+ */
+export async function ensureMainRepo(
+  pi: ExtensionAPI,
+  ctx: ExtensionCommandContext,
+): Promise<boolean> {
+  if (getMainRepoPath() !== "") return true;
+
+  const mainRepo = await detectMainRepo(pi, ctx.cwd);
+  if (!mainRepo) {
+    ctx.ui.notify("Not inside a git repository", "error");
+    return false;
+  }
+  setMainRepoPath(mainRepo);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// autoCommitWithAIMessage — stage, generate commit message, commit
+// ---------------------------------------------------------------------------
+
+const FALLBACK_COMMIT_MESSAGE = "chore: auto-commit worktree changes";
+
+/**
+ * Stage tracked-file changes, generate a commit message via AI, and commit.
+ * Returns the commit message on success, or `null` when there is nothing to commit.
+ */
+export async function autoCommitWithAIMessage(
+  pi: ExtensionAPI,
+  worktreePath: string,
+): Promise<string | null> {
+  // Stage modifications/deletions to tracked files only
+  await gitExec(pi, ["add", "-u"], worktreePath);
+
+  // Get staged diff
+  const diffResult = await gitExec(pi, ["diff", "--cached"], worktreePath);
+  const diff = diffResult.stdout.trim();
+
+  if (!diff) {
+    // Nothing staged after add -u — nothing to commit
+    return null;
+  }
+
+  // Generate commit message via pi subprocess.
+  // Pass the prompt via stdin to avoid exposing diff content in process
+  // args (visible via ps) and to avoid ARG_MAX limits on large changesets.
+  let commitMessage = FALLBACK_COMMIT_MESSAGE;
+  try {
+    const promptText =
+      "Generate a concise conventional-commit style message for this diff. " +
+      "Reply with ONLY the commit message, nothing else:\n\n" +
+      diff;
+    const result = spawnSync("pi", ["--print"], {
+      input: promptText,
+      cwd: worktreePath,
+      timeout: 30_000,
+      encoding: "utf-8",
+    });
+    if (result.status === 0 && result.stdout.trim()) {
+      commitMessage = result.stdout.trim();
+    }
+  } catch {
+    // pi subprocess failed or timed out — use fallback
+  }
+
+  // Commit
+  const commitResult = await gitExec(pi, ["commit", "-m", commitMessage], worktreePath);
+  if (commitResult.code !== 0) {
+    throw new Error("Auto-commit failed: " + commitResult.stderr.trim());
+  }
+
+  return commitMessage;
+}
+
+// ---------------------------------------------------------------------------
+// verifyMergeIntegrity — verify a merge was successful
+// ---------------------------------------------------------------------------
+
+/**
+ * Verify a merge was successful by checking:
+ * 1. Main worktree has no unexpected tracked dirty files
+ * 2. The worktree branch is an ancestor of main (all commits are reachable)
+ * Returns { ok: true, errors: [] } on success, or { ok: false, errors: [...] } on failure.
+ */
+export async function verifyMergeIntegrity(
+  pi: ExtensionAPI,
+  mainRepoPath: string,
+  mainBranch: string,
+  worktreeBranch: string,
+): Promise<{ ok: boolean; errors: string[] }> {
+  const errors: string[] = [];
+
+  // 1. Check tracked files are clean on main
+  const statusResult = await gitExec(pi, ["status", "--porcelain"], mainRepoPath);
+  if (statusResult.code === 0) {
+    const trackedDirty = statusResult.stdout
+      .split("\n")
+      .some((line) => line.trim() !== "" && !line.startsWith("?? "));
+    if (trackedDirty) {
+      errors.push("Main worktree has unexpected tracked dirty files after merge");
+    }
+  }
+
+  // 2. Verify worktree branch is an ancestor of main (all commits reachable)
+  const ancestorResult = await gitExec(
+    pi,
+    ["merge-base", "--is-ancestor", worktreeBranch, mainBranch],
+    mainRepoPath,
+  );
+  if (ancestorResult.code !== 0) {
+    errors.push("Worktree branch '" + worktreeBranch + "' is not fully merged into " + mainBranch);
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
+// ---------------------------------------------------------------------------
+// copyUntrackedFiles — copy untracked files from source to destination
+// ---------------------------------------------------------------------------
+
+export function copyUntrackedFiles(
+  untrackedFiles: string[],
+  sourceDir: string,
+  destDir: string,
+): void {
+  if (untrackedFiles.length === 0) return;
+
+  const resolvedSrcDir = resolve(sourceDir);
+
+  for (const relPath of untrackedFiles) {
+    try {
+      const srcPath = join(sourceDir, relPath);
+      const resolvedSrc = resolve(srcPath);
+      if (!resolvedSrc.startsWith(resolvedSrcDir + "/") && resolvedSrc !== resolvedSrcDir) continue;
+      const destPath = join(destDir, relPath);
+
+      // Prevent path traversal
+      const resolvedDest = resolve(destPath);
+      if (!resolvedDest.startsWith(resolve(destDir) + "/") && resolvedDest !== resolve(destDir))
+        continue;
+
+      // Skip directories (submodule filter) and symlinks
+      const stat = lstatSync(srcPath);
+      if (stat.isDirectory()) continue;
+      if (stat.isSymbolicLink()) continue;
+
+      // Skip existing files
+      if (existsSync(destPath)) continue;
+
+      // Create parent directory
+      mkdirSync(dirname(destPath), { recursive: true });
+
+      // Copy file
+      copyFileSync(srcPath, destPath);
+    } catch {
+      // Individual copy failure — silently skip
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// analyzeFile — determine binary status and line count in a single read
+// ---------------------------------------------------------------------------
+
+export function analyzeFile(filePath: string): { isBinary: boolean; lines: number | null } {
+  try {
+    const stat = lstatSync(filePath);
+    if (stat.isSymbolicLink()) return { isBinary: false, lines: 0 };
+  } catch {
+    return { isBinary: false, lines: 0 };
+  }
+
+  let buf: Buffer;
+  try {
+    buf = readFileSync(filePath);
+  } catch {
+    return { isBinary: false, lines: 0 };
+  }
+
+  // Check for binary in first 8KB only
+  const scanLen = Math.min(buf.length, 8192);
+  for (let i = 0; i < scanLen; i++) {
+    if (buf[i] === 0) return { isBinary: true, lines: null };
+  }
+
+  // Count newlines via byte iteration
+  let lines = 0;
+  for (let i = 0; i < buf.length; i++) {
+    if (buf[i] === 0x0a) lines++;
+  }
+  return { isBinary: false, lines };
+}
+
+// ---------------------------------------------------------------------------
+// copyFilesWithOverwrite — copy files, overwriting existing, return failures
+// ---------------------------------------------------------------------------
+
+export function copyFilesWithOverwrite(
+  files: string[],
+  sourceDir: string,
+  destDir: string,
+): string[] {
+  const failed: string[] = [];
+  const resolvedDestDir = resolve(destDir);
+  const resolvedSrcDir = resolve(sourceDir);
+
+  for (const relPath of files) {
+    try {
+      const srcPath = join(sourceDir, relPath);
+      const destPath = join(destDir, relPath);
+
+      // Prevent destination path traversal
+      const resolvedDest = resolve(destPath);
+      if (!resolvedDest.startsWith(resolvedDestDir + "/") && resolvedDest !== resolvedDestDir) {
+        failed.push(relPath);
+        continue;
+      }
+
+      // Prevent source path traversal
+      const resolvedSrc = resolve(srcPath);
+      if (!resolvedSrc.startsWith(resolvedSrcDir + "/") && resolvedSrc !== resolvedSrcDir) {
+        failed.push(relPath);
+        continue;
+      }
+
+      // Skip directories (submodule filter) and symlinks
+      const stat = lstatSync(srcPath);
+      if (stat.isDirectory()) continue;
+      if (stat.isSymbolicLink()) continue;
+
+      // Skip if destination is a symlink
+      try {
+        const destStat = lstatSync(destPath);
+        if (destStat.isSymbolicLink()) {
+          failed.push(relPath);
+          continue;
+        }
+      } catch {
+        // File doesn't exist yet — safe to create
+      }
+
+      // Create parent directory
+      mkdirSync(dirname(destPath), { recursive: true });
+
+      // Copy file (overwrite if exists)
+      copyFileSync(srcPath, destPath);
+    } catch {
+      failed.push(relPath);
+    }
+  }
+
+  return failed;
+}
+
+// ---------------------------------------------------------------------------
+// formatFileListForConfirm — build human-readable file list for confirm dialog
+// ---------------------------------------------------------------------------
+
+export function formatFileListForConfirm(
+  files: UntrackedFileInfo[],
+  theme: { fg: (color: string, text: string) => string },
+): string {
+  if (files.length === 0) return "";
+
+  const lines: string[] = ["The following untracked files will be copied to main:"];
+
+  files.forEach((file, index) => {
+    const num = index + 1;
+    if (file.isBinary) {
+      lines.push(`  ${num}. ${file.path} (binary)`);
+    } else {
+      const lineInfo = theme.fg("success", `+${String(file.lines)}`);
+      lines.push(`  ${num}. ${file.path} ${lineInfo}`);
+    }
+  });
+
+  return lines.join("\n");
+}

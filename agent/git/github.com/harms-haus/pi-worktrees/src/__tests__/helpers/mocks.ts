@@ -1,0 +1,115 @@
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { vi } from "vitest";
+
+// ============================================================================
+// Mock Factories
+// ============================================================================
+
+/**
+ * Create a mock ExtensionAPI with all methods as vi.fn().
+ * Returns both the shaped `api` object and individual fn references
+ * for convenient assertion access.
+ */
+export function createMockAPI() {
+  const registerCommand = vi.fn();
+  const on = vi.fn();
+  const appendEntry = vi.fn();
+  const sendMessage = vi.fn();
+  const registerMessageRenderer = vi.fn();
+  const exec = vi.fn();
+  const events = {
+    emit: vi.fn(),
+    on: vi.fn(),
+  };
+
+  const api = {
+    registerCommand,
+    on,
+    appendEntry,
+    sendMessage,
+    sendUserMessage: sendMessage,
+    registerMessageRenderer,
+    exec,
+    events,
+  } as unknown as ExtensionAPI;
+
+  return {
+    api,
+    registerCommand,
+    on,
+    appendEntry,
+    sendMessage,
+    registerMessageRenderer,
+    exec,
+    events,
+  };
+}
+
+/**
+ * Create a mock ExtensionCommandContext.
+ * Accepts optional overrides for any property.
+ */
+export function createMockContext(
+  overrides: Record<string, unknown> = {},
+): ExtensionCommandContext {
+  return {
+    hasUI: true,
+    ui: {
+      notify: vi.fn(),
+      confirm: vi.fn().mockResolvedValue(true),
+      select: vi.fn().mockResolvedValue(undefined),
+      input: vi.fn().mockResolvedValue(undefined),
+      setStatus: vi.fn(),
+      theme: {
+        fg: vi.fn((_color: string, text: string) => text),
+      },
+    },
+    sessionManager: {
+      getBranch: vi.fn(() => []),
+    },
+    cwd: process.cwd(),
+    ...overrides,
+  } as unknown as ExtensionCommandContext;
+}
+
+// ============================================================================
+// Capture Utilities
+// ============================================================================
+
+/**
+ * Extract event handlers registered via `pi.on()` into a keyed object.
+ * Keys are event names, values are the registered handler functions.
+ */
+export function captureHandlers(
+  onMock: ReturnType<typeof vi.fn>,
+): Record<string, (...args: unknown[]) => unknown> {
+  const handlers: Record<string, (...args: unknown[]) => unknown> = {};
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  const calls = onMock.mock.calls ?? [];
+  for (const [eventName, handler] of calls) {
+    handlers[eventName as string] = handler;
+  }
+  return handlers;
+}
+
+/**
+ * Extract the name and options from the first `registerCommand` call.
+ */
+export function captureCommand(registerCommandMock: ReturnType<typeof vi.fn>) {
+  const [name, options] = registerCommandMock.mock.calls[0]!;
+  return { name, options };
+}
+
+// ============================================================================
+// Test Helpers
+// ============================================================================
+
+/** Shorthand to create a successful ExecResult */
+export function successResult(stdout = "", stderr = "") {
+  return { stdout, stderr, code: 0, killed: false };
+}
+
+/** Shorthand to create a failed ExecResult */
+export function errorResult(stderr = "", stdout = "") {
+  return { stdout, stderr, code: 1, killed: false };
+}
