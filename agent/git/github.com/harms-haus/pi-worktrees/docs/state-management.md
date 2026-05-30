@@ -128,7 +128,7 @@ session_start
   ├── detectMainRepo()    → setMainRepoPath()
   ├── detectDefaultBranch() → setDefaultBranch()
   ├── restoreWorktreeFromBranch()  → restores from session entries
-  └── updateFooterStatus() → shows 🌳 indicator if not on default
+  └── updateFooterStatus() → no-op (status-bar publishing disabled)
   │
   ... commands run, state changes, entries appended ...
   │
@@ -146,12 +146,7 @@ session_shutdown
 
 ## Footer Status
 
-`updateFooterStatus(ctx)` updates the pi TUI footer:
-
-- **On the default branch**: calls `ctx.ui.setStatus("worktree", undefined)` — removes the indicator.
-- **On a worktree**: calls `ctx.ui.setStatus("worktree", ctx.ui.theme.fg("accent", "🌳 " + currentBranch))` — shows the branch name.
-
-Only runs when `ctx.hasUI` is `true` (no-op in headless mode).
+`updateFooterStatus(ctx)` is retained as a no-op compatibility helper. The extension no longer publishes worktree items to the pi TUI status bar; worktree switching and state persistence continue to work normally.
 
 ---
 

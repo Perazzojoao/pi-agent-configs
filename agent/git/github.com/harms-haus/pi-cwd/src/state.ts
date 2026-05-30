@@ -1,7 +1,6 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createLocalBashOperations } from "@earendil-works/pi-coding-agent";
 import { statSync } from "node:fs";
-import path from "node:path";
 
 // ============================================================================
 // Module State
@@ -23,9 +22,6 @@ export const FILE_TOOLS_OPTIONAL_PATH = new Set(["grep", "find", "ls"]);
 
 /** Custom entry type for cwd-change entries in the session branch. */
 export const CWD_CHANGE_TYPE = "cwd-change" as const;
-
-/** Footer status key for the cwd indicator. */
-export const STATUS_KEY = "cwd" as const;
 
 // ============================================================================
 // State Access Functions
@@ -61,23 +57,9 @@ export function resetBashOps(): void {
 // ============================================================================
 // State-Related Functions
 // ============================================================================
-/** Update the footer status indicator to the current effective cwd. */
-export function updateFooterStatus(ctx: ExtensionContext, cwd: string, _original: string): void {
-  if (!ctx.hasUI) return;
-  const home = process.env.HOME || "";
-  const abbreviatedPath =
-    home && (cwd === home || cwd.startsWith(`${home}/`))
-      ? `~${cwd.slice(home.length)}`
-      : cwd;
-  const isHomeBase = Boolean(home && cwd === home);
-  const isPiBase = Boolean(home && cwd === path.join(home, ".pi"));
-  const parentDirectory = path.basename(path.dirname(cwd));
-  const currentDirectory = path.basename(cwd);
-  const displayPath =
-    isHomeBase || isPiBase || !parentDirectory || !currentDirectory
-      ? abbreviatedPath
-      : `.../${parentDirectory}/${currentDirectory}`;
-  ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("accent", `📂 ${displayPath}`));
+/** Status-bar publishing is intentionally disabled; cwd behavior is preserved elsewhere. */
+export function updateFooterStatus(_ctx: ExtensionContext, _cwd: string, _original: string): void {
+  return;
 }
 
 /**

@@ -97,49 +97,16 @@ describe("getters and setters", () => {
 // updateFooterStatus
 // ============================================================================
 describe("updateFooterStatus", () => {
-  it("branch is 'main' AND path matches main → clears status", () => {
-    setMainRepoPath("/repo");
-    setCurrentWorktreePath("/repo");
-    setCurrentBranch("main");
-
-    const ctx = createMockContext();
-    updateFooterStatus(ctx);
-
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("worktree", undefined);
-  });
-
-  it("branch is not 'main' → sets status with theme.fg", () => {
+  it("does not publish status-bar items", () => {
     setMainRepoPath("/repo");
     setCurrentWorktreePath("/repo/.git/worktrees/feature");
     setCurrentBranch("feature");
 
     const ctx = createMockContext();
-    updateFooterStatus(ctx);
-
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("worktree", expect.any(String));
-    expect(ctx.ui.theme.fg).toHaveBeenCalledWith("accent", expect.stringContaining("feature"));
-  });
-
-  it("hasUI: false → no setStatus call", () => {
-    setMainRepoPath("/repo");
-    setCurrentWorktreePath("/repo/.git/worktrees/feature");
-    setCurrentBranch("feature");
-
-    const ctx = createMockContext({ hasUI: false });
     updateFooterStatus(ctx);
 
     expect(ctx.ui.setStatus).not.toHaveBeenCalled();
-  });
-
-  it("branch is default but path differs from main → sets status", () => {
-    setMainRepoPath("/repo");
-    setCurrentWorktreePath("/repo/.git/worktrees/feature");
-    setCurrentBranch("main");
-
-    const ctx = createMockContext();
-    updateFooterStatus(ctx);
-
-    expect(ctx.ui.setStatus).toHaveBeenCalledWith("worktree", expect.any(String));
+    expect(ctx.ui.theme.fg).not.toHaveBeenCalled();
   });
 });
 
