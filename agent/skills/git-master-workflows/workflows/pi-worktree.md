@@ -23,9 +23,9 @@ Relevant behavior:
 - If the branch does not exist, the extension creates the branch and its worktree.
 - The worktree path is derived from the extension configuration. In this environment, the default base path is `/home/perazzojoao/.herdr/worktrees/.pi/`.
 - The path MUST include a common parent directory whose name is exactly the same as the original project directory before the branch/worktree path.
-- Required path formula: `/home/perazzojoao/.herdr/worktrees/.pi/<original-project-dir>/<branch-name>`.
+- Required path formula: `/home/perazzojoao/.herdr/worktrees/.pi/<repo>/<branch-slug>`.
 - Mandatory example: original project directory `.pi` and branch/worktree `test/testing-tree` MUST produce `/home/perazzojoao/.herdr/worktrees/.pi/.pi/test/testing-tree`.
-- Before and after creation, calculate and review the expected path. Stop and report an error if the path returned by the extension does not exactly match `/home/perazzojoao/.herdr/worktrees/.pi/<original-project-dir>/<branch-name>`.
+- Before and after creation, calculate and review the expected path. Stop and report an error if the path returned by the extension does not exactly match `/home/perazzojoao/.herdr/worktrees/.pi/<repo>/<branch-slug>`.
 - The command switches CWD automatically through `pi-cwd`, updates extension state, persists a session entry, and updates the footer status.
 - Branch names are validated. Invalid examples include empty names, names starting with `-`, `HEAD`, names containing whitespace or special invalid sequences, and names ending in `.lock`.
 - Untracked files from the current CWD may be copied automatically into the new worktree on a best-effort basis. Ignored files are excluded; directories, symlinks, and already-existing destination files are skipped.
@@ -108,7 +108,7 @@ If these points are unclear, stop and ask the user before creating, switching, m
 ## 3. Create an isolated worktree
 
 1. Choose a branch name that describes the task, for example `feat/<short-topic>` or `fix/<short-topic>`.
-2. Determine the original project directory name from the current repository root, then calculate the expected worktree path before creation using this exact formula: `/home/perazzojoao/.herdr/worktrees/.pi/<original-project-dir>/<branch-name>`.
+2. Determine the original project directory name from the current repository root, then calculate the expected worktree path before creation using this exact formula: `/home/perazzojoao/.herdr/worktrees/.pi/<repo>/<branch-slug>`.
 3. Confirm that the expected path includes the required common parent directory named exactly like the original project directory. For project `.pi` and branch `test/testing-tree`, the only valid expected path is `/home/perazzojoao/.herdr/worktrees/.pi/.pi/test/testing-tree`.
 4. Explain to the user that the extension will create or attach a worktree for that branch, switch CWD automatically, and may copy untracked files from the current CWD.
 5. Create and switch with:
@@ -119,7 +119,7 @@ If these points are unclear, stop and ask the user before creating, switching, m
 
 6. Read the command result and footer state. Record the branch name and the worktree path reported by the extension.
 7. Compare the extension-reported path with the expected path calculated before creation. If they differ in any way, stop immediately, report the expected path and the returned path, and do not continue task work in that worktree.
-8. Continue task work only after the command confirms success, Pi has switched to the worktree CWD, and the returned path exactly matches `/home/perazzojoao/.herdr/worktrees/.pi/<original-project-dir>/<branch-name>`.
+8. Continue task work only after the command confirms success, Pi has switched to the worktree CWD, and the returned path exactly matches `/home/perazzojoao/.herdr/worktrees/.pi/<repo>/<branch-slug>`.
 
 If `/wt-create` reports that the directory already exists, the branch name is invalid, the session is not in a repository, or creation failed, do not improvise with direct git commands. Report the error and ask the user how to proceed.
 
