@@ -39,11 +39,18 @@ import {
 const CWD_PROMPT_REGEX = /Current working directory: .+/;
 
 type CwdChangeResult = { ok: true; cwd: string } | { ok: false; error: string };
+type CwdChangeSource = "command" | "programmatic" | "restore" | string;
 
 type CwdChangePayload = {
   path?: unknown;
   ctx?: ExtensionContext;
+  source?: unknown;
   resolve?: (result: CwdChangeResult) => void;
+};
+
+type CwdGetPayload = {
+  resolve?: (result: { cwd: string }) => void;
+  callback?: (result: { cwd: string }) => void;
 };
 
 function parseCwdInput(text: string): string | null {
@@ -54,7 +61,9 @@ function parseCwdInput(text: string): string | null {
 
 function resolveCwdTarget(rawInput: string): CwdChangeResult {
   const expanded = expandTilde(rawInput);
-  const baseCwd = isExistingDirectory(getEffectiveCwd()) ? getEffectiveCwd() : getOriginalCwd();
+  const baseCwd = isExistingDirectory(getEffectiveCwd())
+    ? getEffectiveCwd()
+    : getOriginalCwd();
   const newCwd = resolve(baseCwd, expanded);
   try {
     const stat = statSync(newCwd);
@@ -74,11 +83,40 @@ function resolveCwdTarget(rawInput: string): CwdChangeResult {
   return { ok: true, cwd: realpathSync(newCwd) };
 }
 
+function emitCwdChanged(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  cwd: string,
+  previousCwd: string,
+  source: CwdChangeSource,
+): void {
+  pi.events.emit("pi-cwd:changed", { cwd, previousCwd, source, ctx });
+}
+
+function setEffectiveCwdAndNotify(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  cwd: string,
+  source: CwdChangeSource,
+  persist = true,
+): boolean {
+  const previousCwd = getEffectiveCwd();
+  setEffectiveCwd(cwd);
+  const effectiveCwd = getEffectiveCwd();
+  if (effectiveCwd === previousCwd) return false;
+
+  if (persist) pi.appendEntry(CWD_CHANGE_TYPE, { cwd: effectiveCwd });
+  updateFooterStatus(ctx, effectiveCwd, getOriginalCwd());
+  emitCwdChanged(pi, ctx, effectiveCwd, previousCwd, source);
+  return true;
+}
+
 function changeCwd(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
   rawInput: string,
   notify: boolean,
+  source: CwdChangeSource,
 ): CwdChangeResult {
   resetInvalidEffectiveCwd(pi, ctx);
   const result = resolveCwdTarget(rawInput);
@@ -87,20 +125,21 @@ function changeCwd(
     return result;
   }
 
-  setEffectiveCwd(result.cwd);
-  pi.appendEntry(CWD_CHANGE_TYPE, { cwd: getEffectiveCwd() });
+  setEffectiveCwdAndNotify(pi, ctx, result.cwd, source);
   updateFooterStatus(ctx, getEffectiveCwd(), getOriginalCwd());
-  if (notify) ctx.ui.notify(`Changed working directory to ${getEffectiveCwd()}`, "info");
+  if (notify)
+    ctx.ui.notify(`Changed working directory to ${getEffectiveCwd()}`, "info");
   return { ok: true, cwd: getEffectiveCwd() };
 }
 
-function resetInvalidEffectiveCwd(pi: ExtensionAPI, ctx: ExtensionContext): boolean {
+function resetInvalidEffectiveCwd(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+): boolean {
   const cwd = getEffectiveCwd();
   if (cwd === getOriginalCwd() || isExistingDirectory(cwd)) return false;
 
-  setEffectiveCwd(getOriginalCwd());
-  pi.appendEntry(CWD_CHANGE_TYPE, { cwd: getEffectiveCwd() });
-  updateFooterStatus(ctx, getEffectiveCwd(), getOriginalCwd());
+  setEffectiveCwdAndNotify(pi, ctx, getOriginalCwd(), "validation");
   return true;
 }
 
@@ -109,13 +148,17 @@ function getValidEffectiveCwd(pi: ExtensionAPI, ctx: ExtensionContext): string {
   return getEffectiveCwd();
 }
 
-function handleCwdCommand(pi: ExtensionAPI, ctx: ExtensionContext, rawInput: string): void {
+function handleCwdCommand(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  rawInput: string,
+): void {
   if (!rawInput) {
     resetInvalidEffectiveCwd(pi, ctx);
     ctx.ui.notify(`Current working directory: ${getEffectiveCwd()}`, "info");
     return;
   }
-  changeCwd(pi, ctx, rawInput, true);
+  changeCwd(pi, ctx, rawInput, true, "command");
 }
 
 // ============================================================================
@@ -127,11 +170,18 @@ export default function (pi: ExtensionAPI): void {
     description:
       "Change working directory for tool execution (/cwd <path> or /cwd to show current)",
     // eslint-disable-next-line @typescript-eslint/require-await
-    handler: async (args: string, ctx: ExtensionCommandContext): Promise<void> => {
+    handler: async (
+      args: string,
+      ctx: ExtensionCommandContext,
+    ): Promise<void> => {
       handleCwdCommand(pi, ctx, args.trim());
     },
-    getArgumentCompletions: (argumentPrefix: string): AutocompleteItem[] | null => {
-      const cwd = isExistingDirectory(getEffectiveCwd()) ? getEffectiveCwd() : getOriginalCwd();
+    getArgumentCompletions: (
+      argumentPrefix: string,
+    ): AutocompleteItem[] | null => {
+      const cwd = isExistingDirectory(getEffectiveCwd())
+        ? getEffectiveCwd()
+        : getOriginalCwd();
       return getDirectoryCompletions(argumentPrefix, cwd);
     },
   });
@@ -160,7 +210,21 @@ export default function (pi: ExtensionAPI): void {
       return;
     }
 
-    respond(changeCwd(pi, payload.ctx, payload.path.trim(), false));
+    const source =
+      typeof payload.source === "string" ? payload.source : "programmatic";
+    respond(changeCwd(pi, payload.ctx, payload.path.trim(), false, source));
+  });
+
+  // ── Programmatic CWD reads from other extensions ─────────────────
+  pi.events.on("pi-cwd:get", (data: unknown) => {
+    if (!data || typeof data !== "object") return;
+    const payload = data as CwdGetPayload;
+    const respond =
+      typeof payload.resolve === "function"
+        ? payload.resolve
+        : payload.callback;
+    if (typeof respond !== "function") return;
+    respond({ cwd: getEffectiveCwd() });
   });
 
   // ── Tool call interception ────────────────────────────────────────
@@ -218,7 +282,11 @@ export default function (pi: ExtensionAPI): void {
             env?: NodeJS.ProcessEnv;
           },
         ) => {
-          return originalOps.exec(`cd ${escapedCwd} && ${command}`, cwd, options);
+          return originalOps.exec(
+            `cd ${escapedCwd} && ${command}`,
+            cwd,
+            options,
+          );
         },
       },
     };
@@ -226,13 +294,25 @@ export default function (pi: ExtensionAPI): void {
 
   // ── State restoration ─────────────────────────────────────────────
   pi.on("session_start", (_event, ctx) => {
-    setEffectiveCwd(restoreCwdFromBranch(ctx, getOriginalCwd()));
+    setEffectiveCwdAndNotify(
+      pi,
+      ctx,
+      restoreCwdFromBranch(ctx, getOriginalCwd()),
+      "restore",
+      false,
+    );
     resetBashOps();
     updateFooterStatus(ctx, getEffectiveCwd(), getOriginalCwd());
   });
 
   pi.on("session_tree", (_event, ctx) => {
-    setEffectiveCwd(restoreCwdFromBranch(ctx, getOriginalCwd()));
+    setEffectiveCwdAndNotify(
+      pi,
+      ctx,
+      restoreCwdFromBranch(ctx, getOriginalCwd()),
+      "restore",
+      false,
+    );
     updateFooterStatus(ctx, getEffectiveCwd(), getOriginalCwd());
   });
 }

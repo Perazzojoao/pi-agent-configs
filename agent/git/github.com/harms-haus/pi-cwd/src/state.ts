@@ -1,6 +1,7 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { createLocalBashOperations } from "@earendil-works/pi-coding-agent";
 import { statSync } from "node:fs";
+import path from "node:path";
 
 // ============================================================================
 // Module State
@@ -64,10 +65,18 @@ export function resetBashOps(): void {
 export function updateFooterStatus(ctx: ExtensionContext, cwd: string, _original: string): void {
   if (!ctx.hasUI) return;
   const home = process.env.HOME || "";
-  const displayPath =
+  const abbreviatedPath =
     home && (cwd === home || cwd.startsWith(`${home}/`))
       ? `~${cwd.slice(home.length)}`
       : cwd;
+  const isHomeBase = Boolean(home && cwd === home);
+  const isPiBase = Boolean(home && cwd === path.join(home, ".pi"));
+  const parentDirectory = path.basename(path.dirname(cwd));
+  const currentDirectory = path.basename(cwd);
+  const displayPath =
+    isHomeBase || isPiBase || !parentDirectory || !currentDirectory
+      ? abbreviatedPath
+      : `.../${parentDirectory}/${currentDirectory}`;
   ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("accent", `📂 ${displayPath}`));
 }
 
