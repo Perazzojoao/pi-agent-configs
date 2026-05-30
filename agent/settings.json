@@ -16,7 +16,7 @@
     "npm:pi-rewind",
     "npm:pi-fzf",
     "npm:@neilurk12/pi-lazygit",
-    "npm:@harms-haus/pi-cwd",
+    "git:github.com/harms-haus/pi-cwd",
     "git:github.com/harms-haus/pi-worktrees"
   ],
   "worktrees": {
