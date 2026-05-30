@@ -14,6 +14,10 @@ const {
   setCurrentWorktreePath,
   getDefaultBranch,
   setMainRepoPath,
+  setCurrentBranch,
+  setDefaultBranch,
+  resetState,
+  updateFooterStatus,
 } = vi.hoisted(() => ({
   getMainRepoPath: vi.fn(),
   getCurrentBranch: vi.fn(),
@@ -21,6 +25,10 @@ const {
   setCurrentWorktreePath: vi.fn(),
   getDefaultBranch: vi.fn(),
   setMainRepoPath: vi.fn(),
+  setCurrentBranch: vi.fn(),
+  setDefaultBranch: vi.fn(),
+  resetState: vi.fn(),
+  updateFooterStatus: vi.fn(),
 }));
 
 const { readFileSync, lstatSync, existsSync, mkdirSync, copyFileSync } = vi.hoisted(() => ({
@@ -49,6 +57,10 @@ vi.mock("../state.js", () => ({
   setCurrentWorktreePath,
   getDefaultBranch,
   setMainRepoPath,
+  setCurrentBranch,
+  setDefaultBranch,
+  resetState,
+  updateFooterStatus,
 }));
 
 vi.mock("node:fs", () => ({
@@ -78,6 +90,8 @@ import {
   copyFilesWithOverwrite,
   formatFileListForConfirm,
   verifyMergeIntegrity,
+  findContainingWorktree,
+  syncWorktreeStateFromCwd,
 } from "../worktree.js";
 import { WORKTREE_CHANGE_TYPE } from "../types.js";
 import { createMockAPI, createMockContext } from "./helpers/mocks.js";
@@ -324,6 +338,111 @@ describe("detectMainRepo", () => {
     const result = await detectMainRepo(api, "/repo");
 
     expect(result).toBeNull();
+  });
+});
+
+// ============================================================================
+// findContainingWorktree / syncWorktreeStateFromCwd
+// ============================================================================
+describe("findContainingWorktree", () => {
+  it("matches a worktree when cwd is a subdirectory", async () => {
+    const { api } = createMockAPI();
+    const mainWt = {
+      path: MAIN_REPO,
+      head: "abc",
+      branch: "refs/heads/main",
+      branchName: MAIN_BRANCH,
+    };
+    const featureWt = {
+      path: FEATURE_PATH,
+      head: "def",
+      branch: "refs/heads/" + FEATURE_BRANCH,
+      branchName: FEATURE_BRANCH,
+    };
+    getWorktreeList.mockResolvedValue([mainWt, featureWt]);
+    getMainWorktree.mockReturnValue(mainWt);
+
+    const result = await findContainingWorktree(api, FEATURE_PATH + "/src/app");
+
+    expect(result).toEqual({ worktree: featureWt, mainPath: MAIN_REPO });
+  });
+});
+
+describe("syncWorktreeStateFromCwd", () => {
+  it("updates state, footer, and persists for containing worktree", async () => {
+    const { api, appendEntry } = createMockAPI();
+    const ctx = createMockContext();
+    const mainWt = {
+      path: MAIN_REPO,
+      head: "abc",
+      branch: "refs/heads/main",
+      branchName: MAIN_BRANCH,
+    };
+    const featureWt = {
+      path: FEATURE_PATH,
+      head: "def",
+      branch: "refs/heads/" + FEATURE_BRANCH,
+      branchName: FEATURE_BRANCH,
+    };
+    getWorktreeList.mockResolvedValue([mainWt, featureWt]);
+    getMainWorktree.mockReturnValue(mainWt);
+    gitExec.mockResolvedValue({
+      stdout: "refs/remotes/origin/" + MAIN_BRANCH + "\n",
+      stderr: "",
+      code: 0,
+      killed: false,
+    });
+    getMainRepoPath.mockReturnValue(MAIN_REPO);
+    getCurrentWorktreePath.mockReturnValue(FEATURE_PATH);
+    getCurrentBranch.mockReturnValue(FEATURE_BRANCH);
+    getDefaultBranch.mockReturnValue(MAIN_BRANCH);
+
+    const result = await syncWorktreeStateFromCwd(api, ctx, FEATURE_PATH + "/src");
+
+    expect(result).toBe(true);
+    expect(setMainRepoPath).toHaveBeenCalledWith(MAIN_REPO);
+    expect(setDefaultBranch).toHaveBeenCalledWith(MAIN_BRANCH);
+    expect(setCurrentWorktreePath).toHaveBeenCalledWith(FEATURE_PATH);
+    expect(setCurrentBranch).toHaveBeenCalledWith(FEATURE_BRANCH);
+    expect(updateFooterStatus).toHaveBeenCalledWith(ctx);
+    expect(appendEntry).toHaveBeenCalledWith(
+      WORKTREE_CHANGE_TYPE,
+      expect.objectContaining({ currentBranch: FEATURE_BRANCH }),
+    );
+  });
+
+  it("clears state and footer when cwd is not in a git worktree", async () => {
+    const { api, appendEntry } = createMockAPI();
+    const ctx = createMockContext();
+    getWorktreeList.mockResolvedValue([]);
+
+    const result = await syncWorktreeStateFromCwd(api, ctx, "/tmp");
+
+    expect(result).toBe(false);
+    expect(resetState).toHaveBeenCalled();
+    expect(updateFooterStatus).toHaveBeenCalledWith(ctx);
+    expect(appendEntry).not.toHaveBeenCalled();
+  });
+
+  it("does not apply state when sync token is stale", async () => {
+    const { api, appendEntry } = createMockAPI();
+    const ctx = createMockContext();
+    getWorktreeList.mockResolvedValue([
+      { path: MAIN_REPO, head: "abc", branch: "refs/heads/main", branchName: MAIN_BRANCH },
+    ]);
+    getMainWorktree.mockReturnValue({
+      path: MAIN_REPO,
+      head: "abc",
+      branch: "refs/heads/main",
+      branchName: MAIN_BRANCH,
+    });
+
+    const result = await syncWorktreeStateFromCwd(api, ctx, MAIN_REPO, true, () => false);
+
+    expect(result).toBe(false);
+    expect(setMainRepoPath).not.toHaveBeenCalled();
+    expect(updateFooterStatus).not.toHaveBeenCalled();
+    expect(appendEntry).not.toHaveBeenCalled();
   });
 });
 

@@ -10,6 +10,7 @@ vi.mock("../commands/wt-cleanup.js", () => ({ handleWtCleanup: vi.fn() }));
 vi.mock("../worktree.js", () => ({
   detectMainRepo: vi.fn(),
   detectDefaultBranch: vi.fn(),
+  syncWorktreeStateFromCwd: vi.fn(),
 }));
 
 // ── Mock state module ───────────────────────────────────────────────
@@ -32,7 +33,7 @@ import { handleWtCreate } from "../commands/wt-create.js";
 import { handleWtSwitch } from "../commands/wt-switch.js";
 import { handleWtMerge } from "../commands/wt-merge.js";
 import { handleWtCleanup } from "../commands/wt-cleanup.js";
-import { detectMainRepo, detectDefaultBranch } from "../worktree.js";
+import { detectMainRepo, detectDefaultBranch, syncWorktreeStateFromCwd } from "../worktree.js";
 import {
   setMainRepoPath,
   setDefaultBranch,
@@ -57,7 +58,7 @@ beforeEach(() => {
 
 /** Register the extension against a fresh mock API and return captured data */
 function setup() {
-  const { api, registerCommand, on } = createMockAPI();
+  const { api, registerCommand, on, events } = createMockAPI();
   extension(api);
 
   // Extract registered commands by name
@@ -69,8 +70,9 @@ function setup() {
 
   // Extract event handlers
   const handlers = captureHandlers(on);
+  const eventHandlers = captureHandlers(events.on);
 
-  return { api, registerCommand, on, commands, handlers };
+  return { api, registerCommand, on, events, commands, handlers, eventHandlers };
 }
 
 // ============================================================================
@@ -168,7 +170,7 @@ describe("pi-worktrees extension entry point", () => {
 
   // ── 6. session_start handler detects main repo and restores state
   it("session_start handler detects main repo and restores state", async () => {
-    const { api, handlers } = setup();
+    const { handlers } = setup();
     const ctx = createMockContext();
 
     // Mock detectMainRepo to return a known path
@@ -188,13 +190,13 @@ describe("pi-worktrees extension entry point", () => {
     // Assert state management functions were called
     expect(setMainRepoPath).toHaveBeenCalledWith("/path/to/repo");
     expect(setDefaultBranch).toHaveBeenCalledWith("main");
-    expect(restoreWorktreeFromBranch).toHaveBeenCalledWith(ctx, api);
+    expect(restoreWorktreeFromBranch).toHaveBeenCalledWith(ctx);
     expect(updateFooterStatus).toHaveBeenCalledWith(ctx);
   });
 
   // ── session_start when detectMainRepo returns null ────────────────
   it("session_start does not call setMainRepoPath when detectMainRepo returns null", async () => {
-    const { api, handlers } = setup();
+    const { handlers } = setup();
     const ctx = createMockContext();
 
     vi.mocked(detectMainRepo).mockResolvedValue(null);
@@ -204,21 +206,61 @@ describe("pi-worktrees extension entry point", () => {
 
     expect(setMainRepoPath).not.toHaveBeenCalled();
     expect(setDefaultBranch).not.toHaveBeenCalled();
-    // restoreWorktreeFromBranch and updateFooterStatus should still be called
-    expect(restoreWorktreeFromBranch).toHaveBeenCalledWith(ctx, api);
+    // restoreWorktreeFromBranch and footer fallback should still be called
+    expect(restoreWorktreeFromBranch).toHaveBeenCalledWith(ctx);
     expect(updateFooterStatus).toHaveBeenCalledWith(ctx);
   });
 
   // ── session_tree handler restores state ───────────────────────────
-  it("session_tree handler restores worktree and updates footer", () => {
-    const { api, handlers } = setup();
+  it("session_tree handler restores worktree and updates footer", async () => {
+    const { handlers } = setup();
     const ctx = createMockContext();
 
     const sessionTreeHandler = handlers["session_tree"]!;
-    sessionTreeHandler({}, ctx);
+    await sessionTreeHandler({}, ctx);
 
-    expect(restoreWorktreeFromBranch).toHaveBeenCalledWith(ctx, api);
+    expect(restoreWorktreeFromBranch).toHaveBeenCalledWith(ctx);
     expect(updateFooterStatus).toHaveBeenCalledWith(ctx);
+  });
+
+  // ── pi-cwd changed sync ───────────────────────────────────────────
+  it("syncs from pi-cwd:changed when source is not pi-worktrees", () => {
+    const { api, eventHandlers } = setup();
+    const ctx = createMockContext();
+
+    eventHandlers["pi-cwd:changed"]?.({ cwd: "/repo/subdir", source: "command", ctx });
+
+    expect(syncWorktreeStateFromCwd).toHaveBeenCalledWith(
+      api,
+      ctx,
+      "/repo/subdir",
+      true,
+      expect.any(Function),
+    );
+  });
+
+  it("syncs restore pi-cwd:changed without persisting", () => {
+    const { api, eventHandlers } = setup();
+    const ctx = createMockContext();
+
+    eventHandlers["pi-cwd:changed"]?.({ cwd: "/repo", source: "restore", ctx });
+
+    expect(syncWorktreeStateFromCwd).toHaveBeenCalledWith(
+      api,
+      ctx,
+      "/repo",
+      false,
+      expect.any(Function),
+    );
+  });
+
+  it("ignores pi-cwd:changed emitted by pi-worktrees", () => {
+    const { eventHandlers } = setup();
+    const ctx = createMockContext();
+
+    eventHandlers["pi-cwd:changed"]?.({ cwd: "/repo", source: "pi-worktrees", ctx });
+
+    expect(syncWorktreeStateFromCwd).not.toHaveBeenCalled();
   });
 
   // ── session_shutdown handler resets state ─────────────────────────
