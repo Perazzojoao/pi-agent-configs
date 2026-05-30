@@ -1,8 +1,12 @@
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 import { gitExec, getWorktreeList, getMainWorktree } from "./git.js";
 import {
@@ -12,8 +16,12 @@ import {
   setCurrentWorktreePath,
   getDefaultBranch,
   setMainRepoPath,
+  setCurrentBranch,
+  setDefaultBranch,
+  resetState,
+  updateFooterStatus,
 } from "./state.js";
-import type { UntrackedFileInfo } from "./types.js";
+import type { UntrackedFileInfo, WorktreeInfo } from "./types.js";
 import { WORKTREE_CHANGE_TYPE } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -82,6 +90,7 @@ async function requestCwdChange(
     pi.events.emit("pi-cwd:change", {
       path: targetPath,
       ctx,
+      source: "pi-worktrees",
       resolve: settle,
     });
   });
@@ -147,6 +156,55 @@ export async function hasTrackedChanges(pi: ExtensionAPI, worktreePath: string):
 // ---------------------------------------------------------------------------
 // detectDefaultBranch — detect the default branch from git
 // ---------------------------------------------------------------------------
+
+function isPathInside(parentPath: string, childPath: string): boolean {
+  const rel = relative(resolve(parentPath), resolve(childPath));
+  return rel === "" || (!!rel && !rel.startsWith("..") && !isAbsolute(rel));
+}
+
+export async function findContainingWorktree(
+  pi: ExtensionAPI,
+  cwd: string,
+): Promise<{ worktree: WorktreeInfo; mainPath: string } | null> {
+  const worktrees = await getWorktreeList(pi, cwd);
+  if (worktrees.length === 0) return null;
+
+  const matching = worktrees
+    .filter((wt) => isPathInside(wt.path, cwd))
+    .sort((a, b) => b.path.length - a.path.length)[0];
+  const main = getMainWorktree(worktrees);
+  if (!matching || !main) return null;
+
+  return { worktree: matching, mainPath: main.path };
+}
+
+export async function syncWorktreeStateFromCwd(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  cwd: string,
+  persist = true,
+  shouldApply: () => boolean = () => true,
+): Promise<boolean> {
+  const match = await findContainingWorktree(pi, cwd);
+  if (!shouldApply()) return false;
+  if (!match) {
+    resetState();
+    updateFooterStatus(ctx);
+    return false;
+  }
+
+  const defaultBranch = await detectDefaultBranch(pi, cwd);
+  if (!shouldApply()) return false;
+  setMainRepoPath(match.mainPath);
+  setDefaultBranch(defaultBranch);
+  setCurrentWorktreePath(match.worktree.path);
+  setCurrentBranch(
+    match.worktree.branchName === "detached" ? "detached" : match.worktree.branchName,
+  );
+  updateFooterStatus(ctx);
+  if (persist) persistWorktreeState(pi);
+  return true;
+}
 
 export async function detectDefaultBranch(pi: ExtensionAPI, cwd: string): Promise<string> {
   // Try git symbolic-ref first (works when origin is configured)
