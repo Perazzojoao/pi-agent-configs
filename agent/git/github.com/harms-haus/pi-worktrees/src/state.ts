@@ -56,14 +56,8 @@ export function resetState(): void {
   defaultBranch = "main";
 }
 
-export function updateFooterStatus(ctx: ExtensionContext): void {
-  if (!ctx.hasUI) return;
-
-  if (currentBranch === defaultBranch && currentWorktreePath === mainRepoPath) {
-    ctx.ui.setStatus("worktree", undefined);
-  } else {
-    ctx.ui.setStatus("worktree", ctx.ui.theme.fg("accent", "🌳 " + currentBranch));
-  }
+export function updateFooterStatus(_ctx: ExtensionContext): void {
+  return;
 }
 
 function isExistingDirectory(path: string): boolean {
