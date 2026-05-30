@@ -34,7 +34,9 @@ export default function (pi: ExtensionAPI) {
 			let disposed = false;
 			let effectiveCwd = ctx.cwd;
 			let effectiveBranch: string | null = footerData.getGitBranch();
+			let effectiveIsWorktree: boolean | null = null;
 			let branchRefreshSeq = 0;
+			let worktreeRefreshSeq = 0;
 
 			const requestRender = () => {
 				if (!disposed) tui.requestRender();
@@ -59,16 +61,48 @@ export default function (pi: ExtensionAPI) {
 				requestRender();
 			};
 
+			const refreshEffectiveWorktree = async (cwd: string) => {
+				if (disposed) return;
+				const seq = ++worktreeRefreshSeq;
+				let isWorktree: boolean | null = null;
+
+				try {
+					const result = await pi.exec("git", [
+						"-C",
+						cwd,
+						"rev-parse",
+						"--path-format=absolute",
+						"--git-dir",
+						"--git-common-dir",
+					], { timeout: 2000 });
+					if (result.code === 0) {
+						const lines = result.stdout.trim().split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+						if (lines.length >= 2) {
+							const [gitDir, gitCommonDir] = lines;
+							isWorktree = gitDir !== gitCommonDir;
+						}
+					}
+				} catch {
+					isWorktree = null;
+				}
+
+				if (disposed || seq !== worktreeRefreshSeq || effectiveCwd !== cwd) return;
+				effectiveIsWorktree = isWorktree;
+				requestRender();
+			};
+
 			const unsubBranch = footerData.onBranchChange(() => {
 				if (disposed) return;
 				if (effectiveCwd === ctx.cwd) {
 					branchRefreshSeq++;
 					effectiveBranch = footerData.getGitBranch();
+					void refreshEffectiveWorktree(effectiveCwd);
 					requestRender();
 					return;
 				}
 
 				void refreshEffectiveBranch(effectiveCwd);
+				void refreshEffectiveWorktree(effectiveCwd);
 				requestRender();
 			});
 
@@ -79,6 +113,7 @@ export default function (pi: ExtensionAPI) {
 
 				effectiveCwd = cwd;
 				void refreshEffectiveBranch(cwd);
+				void refreshEffectiveWorktree(cwd);
 				requestRender();
 			});
 
@@ -90,15 +125,18 @@ export default function (pi: ExtensionAPI) {
 
 					effectiveCwd = cwd;
 					void refreshEffectiveBranch(cwd);
+					void refreshEffectiveWorktree(cwd);
 					requestRender();
 				},
 			});
 			void refreshEffectiveBranch(effectiveCwd);
+			void refreshEffectiveWorktree(effectiveCwd);
 
 			return {
 				dispose() {
 					disposed = true;
 					branchRefreshSeq++;
+					worktreeRefreshSeq++;
 					unsubBranch();
 					unsubCwd();
 				},
@@ -149,10 +187,12 @@ export default function (pi: ExtensionAPI) {
 					const line1 = truncateToWidth(l1Left + pad1 + l1Right, width, "");
 
 					// --- Line 2: cwd + branch (left), tool tally (right) ---
+					const extensionStatuses = footerData.getExtensionStatuses();
+					const isWorktree = effectiveIsWorktree ?? extensionStatuses.has("worktree");
 					const l2Left =
 						theme.fg("dim", ` ${dir}`) +
 						(branch
-							? theme.fg("dim", " ") + theme.fg("warning", "(") + theme.fg("success", branch) + theme.fg("warning", ")")
+							? theme.fg("dim", " ") + theme.fg("warning", "(") + theme.fg("success", branch) + theme.fg("warning", ")") + (isWorktree ? "🌳" : "")
 							: "");
 
 					const entries = Object.entries(counts);
@@ -167,7 +207,6 @@ export default function (pi: ExtensionAPI) {
 					const line2 = truncateToWidth(l2Left + pad2 + l2Right, width, "");
 
 					const lines = [line1, line2];
-					const extensionStatuses = footerData.getExtensionStatuses();
 					if (extensionStatuses.size > 0) {
 						const worktreeStatus = extensionStatuses.get("worktree");
 						const orderedStatuses = Array.from(extensionStatuses.entries())
