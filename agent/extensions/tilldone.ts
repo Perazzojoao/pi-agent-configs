@@ -234,8 +234,21 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	const refreshUI = (ctx: ExtensionContext) => {
+		if (tasks.length === 0 || (!strictModeEnabled && !tilldoneUsedInBranch)) {
+			ctx.ui.setStatus('tilldone', undefined)
+			refreshWidget(ctx)
+			return
+		}
+
+		const statusTheme = (ctx.ui as typeof ctx.ui & { theme?: Theme }).theme
+		const color = (name: 'dim' | 'accent' | 'success', text: string) => statusTheme?.fg(name, text) ?? text
+		const idle = tasks.filter(t => t.status === 'idle').length
+		const inprogress = tasks.filter(t => t.status === 'inprogress').length
 		const done = tasks.filter(t => t.status === 'done').length
-		ctx.ui.setStatus('tilldone', `📋 - ${done}/${tasks.length}`)
+		ctx.ui.setStatus(
+			'tilldone',
+			`${color('dim', `○ ${idle}`)} ${color('accent', `● ${inprogress}`)} ${color('success', `✓ ${done}`)}`,
+		)
 
 		refreshWidget(ctx)
 	}
