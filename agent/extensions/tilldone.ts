@@ -234,13 +234,8 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	const refreshUI = (ctx: ExtensionContext) => {
-		if (tasks.length === 0) {
-			ctx.ui.setStatus('tilldone', '📋 TillDone: no tasks')
-		} else {
-			const remaining = tasks.filter(t => t.status !== 'done').length
-			const label = listTitle ? `📋 ${listTitle}` : '📋 TillDone'
-			ctx.ui.setStatus('tilldone', `${label}: ${tasks.length} tasks (${remaining} remaining)`)
-		}
+		const done = tasks.filter(t => t.status === 'done').length
+		ctx.ui.setStatus('tilldone', `📋 - ${done}/${tasks.length}`)
 
 		refreshWidget(ctx)
 	}
