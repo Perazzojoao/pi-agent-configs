@@ -15,6 +15,13 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { basename } from "node:path";
 
+function sanitizeStatusText(text: string): string {
+	return text
+		.replace(/[\r\n\t]/g, " ")
+		.replace(/ +/g, " ")
+		.trim();
+}
+
 export default function (pi: ExtensionAPI) {
 	const counts: Record<string, number> = {};
 
@@ -49,9 +56,9 @@ export default function (pi: ExtensionAPI) {
 
 					// --- Line 1: model + context meter (left), tokens + cost (right) ---
 					const usage = ctx.getContextUsage();
-					const pct = usage ? usage.percent : 0;
-					const filled = Math.round(pct / 10) || 1;
-					const bar = "#".repeat(filled) + "-".repeat(10 - filled);
+					const rawPct = usage?.percent ?? 0;
+					const pct = Number.isFinite(rawPct) ? Math.min(100, Math.max(0, rawPct)) : 0;
+					const filled = Math.min(10, Math.max(0, Math.round(pct / 10)));
 					const model = ctx.model?.id || "no-model";
 
 					const l1Left =
@@ -92,7 +99,25 @@ export default function (pi: ExtensionAPI) {
 					const pad2 = " ".repeat(Math.max(1, width - visibleWidth(l2Left) - visibleWidth(l2Right)));
 					const line2 = truncateToWidth(l2Left + pad2 + l2Right, width, "");
 
-					return [line1, line2];
+					const lines = [line1, line2];
+					const extensionStatuses = footerData.getExtensionStatuses();
+					if (extensionStatuses.size > 0) {
+						const worktreeStatus = extensionStatuses.get("worktree");
+						const orderedStatuses = Array.from(extensionStatuses.entries())
+							.filter(([key]) => key !== "worktree")
+							.sort(([a], [b]) => a.localeCompare(b));
+						if (worktreeStatus !== undefined) {
+							orderedStatuses.splice(Math.min(2, orderedStatuses.length), 0, ["worktree", worktreeStatus]);
+						}
+
+						const statusText = orderedStatuses
+							.map(([, text]) => theme.fg("accent", sanitizeStatusText(text)))
+							.join(theme.fg("dim", " | "));
+						lines.push("");
+						lines.push(truncateToWidth(theme.fg("dim", " ") + statusText, width, ""));
+					}
+
+					return lines;
 				},
 			};
 		});
