@@ -31,10 +31,77 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		ctx.ui.setFooter((tui, theme, footerData) => {
-			const unsub = footerData.onBranchChange(() => tui.requestRender());
+			let disposed = false;
+			let effectiveCwd = ctx.cwd;
+			let effectiveBranch: string | null = footerData.getGitBranch();
+			let branchRefreshSeq = 0;
+
+			const requestRender = () => {
+				if (!disposed) tui.requestRender();
+			};
+
+			const refreshEffectiveBranch = async (cwd: string) => {
+				if (disposed) return;
+				const seq = ++branchRefreshSeq;
+				let branch: string | null = null;
+
+				try {
+					const result = await pi.exec("git", ["-C", cwd, "branch", "--show-current"], { timeout: 2000 });
+					if (result.code === 0) {
+						branch = result.stdout.trim() || null;
+					}
+				} catch {
+					branch = null;
+				}
+
+				if (disposed || seq !== branchRefreshSeq || effectiveCwd !== cwd) return;
+				effectiveBranch = branch;
+				requestRender();
+			};
+
+			const unsubBranch = footerData.onBranchChange(() => {
+				if (disposed) return;
+				if (effectiveCwd === ctx.cwd) {
+					branchRefreshSeq++;
+					effectiveBranch = footerData.getGitBranch();
+					requestRender();
+					return;
+				}
+
+				void refreshEffectiveBranch(effectiveCwd);
+				requestRender();
+			});
+
+			const unsubCwd = pi.events.on("pi-cwd:changed", (payload: unknown) => {
+				if (disposed || !payload || typeof payload !== "object") return;
+				const cwd = (payload as { cwd?: unknown }).cwd;
+				if (typeof cwd !== "string") return;
+
+				effectiveCwd = cwd;
+				void refreshEffectiveBranch(cwd);
+				requestRender();
+			});
+
+			pi.events.emit("pi-cwd:get", {
+				resolve: (data: unknown) => {
+					if (disposed || !data || typeof data !== "object") return;
+					const cwd = (data as { cwd?: unknown }).cwd;
+					if (typeof cwd !== "string") return;
+
+					effectiveCwd = cwd;
+					void refreshEffectiveBranch(cwd);
+					requestRender();
+				},
+			});
+			void refreshEffectiveBranch(effectiveCwd);
 
 			return {
-				dispose: unsub,
+				dispose() {
+					disposed = true;
+					branchRefreshSeq++;
+					unsubBranch();
+					unsubCwd();
+				},
 				invalidate() {},
 				render(width: number): string[] {
 					// --- Line 1: cwd + branch (left), tokens + cost (right) ---
@@ -51,8 +118,8 @@ export default function (pi: ExtensionAPI) {
 					}
 
 					const fmt = (n: number) => n < 1000 ? `${n}` : `${(n / 1000).toFixed(1)}k`;
-					const dir = basename(ctx.cwd);
-					const branch = footerData.getGitBranch();
+					const dir = basename(effectiveCwd);
+					const branch = effectiveBranch;
 
 					// --- Line 1: model + context meter (left), tokens + cost (right) ---
 					const usage = ctx.getContextUsage();
