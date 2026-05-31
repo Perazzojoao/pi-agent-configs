@@ -720,7 +720,7 @@ export default function (pi: ExtensionAPI) {
 		const teamMembers = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
 
 		const tilldoneSection = tilldoneEnabled
-			? `\n## TillDone (optional task tracking)\n- The tilldone tool is available in this session, but you have autonomy to decide when it is useful.\n- Prefer using tilldone for longer prompts that involve more complex implementation work, bug fixes, or multi-step coordination.\n- Simple tasks do not need tilldone; proceed directly with dispatch_agent when task tracking would add little value.\n- Exception: if the user specifically asks you to use tilldone, you must use it.\n- Continue delegating actual implementation work via dispatch_agent.\n`
+			? `\n## TillDone (Planner-driven planning tracking only)\n- tilldone is available only for Planner-driven planning tracking.\n- The dispatcher must only use tilldone to create/update/track task lists that represent a plan produced or requested by the Planner.\n- Do not use tilldone for generic task management, implementation, review, documentation, debugging, or user-requested tracking unless it is tied to a Planner plan.\n- When the Planner asks the dispatcher to create/update tilldone for its plan, the dispatcher should do so before continuing delegation.\n- Implementation still goes through dispatch_agent.\n`
 			: "";
 
 		const sudoExecSection = sudoExecEnabled
