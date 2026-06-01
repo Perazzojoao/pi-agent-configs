@@ -53,15 +53,16 @@ test("widget only shows spawned/relevant instances", () => {
 	assert.doesNotMatch(lines, /Scout #1/);
 });
 
-test("widget applies requested labels, tree layout, and context token estimate", () => {
+test("widget applies requested labels, tree layout, context token estimate, and thinking", () => {
 	const lines = renderAgentsWidget([state({
+		thinking: "medium",
 		instances: [{ index: 1, status: "running", task: "scan files", lastWork: "", contextPct: 50, elapsed: 1000, runCount: 1, sessionFile: null }],
-	})], 220, {}, { model: "github-copilot/gpt-5-mini", contextTokens: 1234 });
+	})], 220, {}, { model: "github-copilot/gpt-5-mini", thinking: "low", contextTokens: 1234 });
 	const plain = lines.map(stripAnsi).join("\n");
 
 	assert.match(lines[0], /^\x1b\[36m◆ Dispatcher:/);
-	assert.match(plain, /^◆ Dispatcher:  🧠 1k  github-copilot\/gpt-5-mini/);
-	assert.match(plain, /\|- ◇ Scout #1: .*● running • .*🧠 75k.* •  .*openai\/example-model-with-a-very-long-name  .*1s/);
+	assert.match(plain, /^◆ Dispatcher:  🧠 1k  github-copilot\/gpt-5-mini  \(low\)/);
+	assert.match(plain, /\|- ◇ Scout #1: .*● running • .*🧠 75k.* •  .*openai\/example-model-with-a-very-long-name \(medium\)  .*1s/);
 	assert.match(plain, /\|    ↳ .*scan files/);
 });
 

@@ -344,6 +344,7 @@ export default function (pi: ExtensionAPI) {
 				const dispatcher: DispatcherWidgetState = {
 					model: dispatcherModel,
 					contextTokens: usage?.tokens ?? 0,
+					thinking: typeof pi.getThinkingLevel === "function" ? pi.getThinkingLevel() : "",
 				};
 
 				if (agentStates.size === 0) {
@@ -354,6 +355,7 @@ export default function (pi: ExtensionAPI) {
 					name: state.def.name,
 					description: state.def.description,
 					model: state.config.model || "current Pi model",
+					thinking: state.config.effort || "",
 					maxCtx: state.config.maxCtx ?? 100,
 					instances: state.instances,
 				}));
