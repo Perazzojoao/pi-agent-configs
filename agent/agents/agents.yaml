@@ -1,6 +1,6 @@
 agents:
   - scout:
-    model: github-copilot/claude-haiku-4.5
+    model: github-copilot/gpt-5-mini
     effort: off
     tools: read,grep,find,ls
     max_ctx: 150
