@@ -34,9 +34,11 @@ function state(overrides: Partial<AgentWidgetState> = {}): AgentWidgetState {
 	};
 }
 
-test("widget empty state is width safe", () => {
+test("widget empty state renders only dispatcher and remains width safe", () => {
 	for (const width of [0, 1, 2, 10, 30]) {
 		const lines = renderAgentsWidget([state()], width, theme);
+		assert.equal(lines.length, 1);
+		assert.doesNotMatch(lines.map(stripAnsi).join("\n"), /No spawned specialists yet|\|/);
 		for (const line of lines) assert.ok(ansiVisibleWidth(line) <= Math.max(0, width), `${width}: ${line}`);
 	}
 });

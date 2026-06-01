@@ -232,10 +232,7 @@ export function renderAgentsWidget(states: AgentWidgetState[], width: number, th
 		.filter(instance => instance.status !== "idle" || instance.runCount > 0 || !!instance.sessionFile)
 		.map(instance => ({ state, instance })));
 
-	if (instances.length === 0) {
-		lines.push(fitLine(`|  ${themed(theme, "dim", "No spawned specialists yet.")}`, width));
-		return lines;
-	}
+	if (instances.length === 0) return lines;
 
 	for (const { state, instance } of instances) {
 		const color = colorMap.get(state.name.toLowerCase()) ?? hslToRgb(23, 0.72, 0.68);
