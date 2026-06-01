@@ -23,6 +23,7 @@ A extensão fica em uma pasta com `index.ts`:
 
 ```text
 agent/extensions/pi-agents/index.ts
+agent/extensions/pi-agents/src/extension.ts
 agent/extensions/pi-agents/core.ts
 ```
 
@@ -44,11 +45,21 @@ A extensão não precisa de um arquivo `agent-teams.ts` e este README não depen
 
 ```text
 agent/extensions/pi-agents/
-├── index.ts          # extensão Pi, dispatcher, tool, UI, locks, worktrees e sessões
-├── core.ts           # parser de agents.yaml, normalização de tools e helpers de Git/status
+├── index.ts          # entrypoint fino que reexporta src/extension.ts
+├── core.ts           # reexports compatíveis dos helpers em src/
+├── src/
+│   ├── extension.ts  # extensão Pi, dispatcher, tool, UI, locks, worktrees e sessões
+│   ├── core.ts       # barrel interno dos helpers testáveis
+│   ├── types.ts      # tipos compartilhados
+│   ├── yaml.ts       # parser de agents.yaml e normalização de tools
+│   ├── git-status.ts # parser/status Git e escopo de mudanças
+│   └── paths.ts      # paths, locks/resources, validação e planos de worktree
 ├── package.json      # scripts/dependências locais da extensão
 ├── test/
-│   └── core.test.ts  # testes do parser e helpers de core.ts
+│   ├── yaml.test.ts
+│   ├── git-status.test.ts
+│   ├── paths-resources.test.ts
+│   └── worktrees.test.ts
 └── README.md         # esta documentação
 
 agent/agents/
@@ -441,11 +452,11 @@ Cada card mostra:
 
 ## Testes
 
-Testes da extensão ficam em `agent/extensions/pi-agents/test/`; hoje há `test/core.test.ts`. O `package.json` local expõe o script `npm test`, que executa `tsx --test test/*.test.ts` a partir da pasta da extensão.
+Testes da extensão ficam em `agent/extensions/pi-agents/test/`, divididos por responsabilidade (`yaml`, `git-status`, `paths/resources`, `worktrees`). O `package.json` local expõe o script `npm test`, que executa `tsx --test test/*.test.ts` a partir da pasta da extensão.
 
 Sugestões de cobertura:
 
-- parser de `agents.yaml` em `core.ts`;
+- parser de `agents.yaml` em `src/yaml.ts`;
 - normalização de `tools`;
 - detecção de mudanças fora de escopo;
 - locks de recursos para `read`/`write`;
