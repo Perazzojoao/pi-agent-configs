@@ -83,6 +83,14 @@ export function shouldAbortFailedBaseMerge(mergeExitCode: number): boolean {
 	return mergeExitCode !== 0;
 }
 
+export function getAutoWorktreePath(baseCwd: string, branchSlug: string, agentKey: string, instanceIndex: number): string {
+	return resolve(baseCwd, "..", "worktrees", branchSlug, `${agentKey}-${instanceIndex}`);
+}
+
+export function getAutoMergeResolutionWorktreePath(baseCwd: string, branchSlug: string): string {
+	return resolve(baseCwd, "..", "worktrees", "merge-resolution", branchSlug);
+}
+
 export function planDispatchIsolation(baseCwd: string, mode: DispatchMode, options: DispatchResourceOptions, hasConcurrentWrite: boolean, autoWorktreePath?: string): DispatchIsolationPlan {
 	const explicitWorktree = !!options.worktree?.trim();
 	const autoWorktree = shouldUseAutoWorktree(mode, options.worktree, hasConcurrentWrite);

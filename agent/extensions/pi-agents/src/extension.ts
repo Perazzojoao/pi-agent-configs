@@ -20,6 +20,8 @@ import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, statSync,
 import { join, resolve } from "path";
 import { homedir } from "os";
 import {
+	getAutoMergeResolutionWorktreePath,
+	getAutoWorktreePath,
 	getDispatchResources,
 	getOutOfScopeRunChanges,
 	hasDeclaredWriteScope,
@@ -427,13 +429,13 @@ export default function (pi: ExtensionAPI) {
 		const branch = `${branchSlug}/${agentKey}-${instanceIndex}`;
 		const checkRef = runGit(baseCwd, ["check-ref-format", "--branch", branch]);
 		if (checkRef.code !== 0) return { error: `Generated automatic worktree branch is not a valid Git branch: ${branch}` };
-		const path = join(baseCwd, ".pi", "agent-worktrees", branchSlug, `${agentKey}-${instanceIndex}`);
+		const path = getAutoWorktreePath(baseCwd, branchSlug, agentKey, instanceIndex);
 
 		if (existsSync(path)) {
 			return { error: `Automatic worktree path already exists: ${path}` };
 		}
 
-		mkdirSync(join(baseCwd, ".pi", "agent-worktrees", branchSlug), { recursive: true });
+		mkdirSync(resolve(path, ".."), { recursive: true });
 		const created = runGit(baseCwd, ["worktree", "add", "-b", branch, path, "HEAD"]);
 		if (created.code !== 0) {
 			return { error: `Failed to create automatic worktree ${path} on branch ${branch}: ${created.stderr || created.stdout}` };
@@ -513,12 +515,12 @@ export default function (pi: ExtensionAPI) {
 	function tryAutoResolveMergeConflict(worktree: AutoWorktree, agentName: string, instanceIndex: number, mergeOutput: string, declaredFiles: string[] | undefined): { merged: boolean; note: string } {
 		const resolutionBranch = `${worktree.branch}-merge-resolution`;
 		const branchSlug = sanitizeBranchSlug(resolutionBranch);
-		const resolutionPath = join(worktree.baseCwd, ".pi", "agent-worktrees", "merge-resolution", branchSlug);
+		const resolutionPath = getAutoMergeResolutionWorktreePath(worktree.baseCwd, branchSlug);
 		if (existsSync(resolutionPath)) {
 			return { merged: false, note: `Merge conflict fallback skipped because resolution worktree path already exists: ${resolutionPath}` };
 		}
 
-		mkdirSync(join(worktree.baseCwd, ".pi", "agent-worktrees", "merge-resolution"), { recursive: true });
+		mkdirSync(resolve(resolutionPath, ".."), { recursive: true });
 		const add = runGit(worktree.baseCwd, ["worktree", "add", "-b", resolutionBranch, resolutionPath, "HEAD"]);
 		if (add.code !== 0) {
 			return { merged: false, note: `Merge conflict fallback could not create resolution worktree ${resolutionPath} on branch ${resolutionBranch}: ${add.stderr || add.stdout}` };
