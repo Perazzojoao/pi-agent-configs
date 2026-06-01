@@ -37,7 +37,7 @@ import {
 	type DispatchMode,
 	type GitStatusSnapshot,
 } from "./core";
-import { ansiVisibleWidth, displayName, fitLine, renderAgentsWidget, type AgentWidgetState } from "./widget";
+import { ansiVisibleWidth, displayName, fitLine, renderAgentsWidget, type AgentWidgetState, type DispatcherWidgetState } from "./widget";
 
 // ── Types ────────────────────────────────────────
 
@@ -337,8 +337,17 @@ export default function (pi: ExtensionAPI) {
 		widgetCtx.ui.setWidget("pi-agents", (_tui: any, theme: any) => ({
 			render(width: number): string[] {
 				if (width <= 0) return [""];
+				const dispatcherModel = widgetCtx.model
+					? `${widgetCtx.model.provider}/${widgetCtx.model.id}`
+					: "current Pi model";
+				const usage = typeof widgetCtx.getContextUsage === "function" ? widgetCtx.getContextUsage() : undefined;
+				const dispatcher: DispatcherWidgetState = {
+					model: dispatcherModel,
+					contextTokens: usage?.tokens ?? 0,
+				};
+
 				if (agentStates.size === 0) {
-					return [fitLine(safeFg(theme, "dim", "No agents found. Add .md files to agents/"), width)];
+					return renderAgentsWidget([], width, theme, dispatcher);
 				}
 
 				const states: AgentWidgetState[] = Array.from(agentStates.values()).map(state => ({
@@ -348,7 +357,7 @@ export default function (pi: ExtensionAPI) {
 					maxCtx: state.config.maxCtx ?? 100,
 					instances: state.instances,
 				}));
-				return renderAgentsWidget(states, width, theme);
+				return renderAgentsWidget(states, width, theme, dispatcher);
 			},
 			invalidate() {},
 		}));
