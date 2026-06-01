@@ -36,29 +36,73 @@ export function stripAnsi(value: string): string {
 	return value.replace(ANSI_RE, "");
 }
 
+const WIDE_RANGES: Array<[number, number]> = [
+	[0x1100, 0x115f],
+	[0x2329, 0x232a],
+	[0x2600, 0x27bf], // Misc symbols + dingbats; includes ✅ (U+2705)
+	[0x2b00, 0x2bff],
+	[0x2e80, 0xa4cf],
+	[0xac00, 0xd7a3],
+	[0xf900, 0xfaff],
+	[0xfe10, 0xfe19],
+	[0xfe30, 0xfe6f],
+	[0xff00, 0xff60],
+	[0xffe0, 0xffe6],
+	[0x1f000, 0x1faff],
+	[0x1fc00, 0x1fffd],
+];
+
+function inRanges(cp: number, ranges: Array<[number, number]>): boolean {
+	return ranges.some(([from, to]) => cp >= from && cp <= to);
+}
+
 function charWidth(ch: string): number {
 	const cp = ch.codePointAt(0) || 0;
 	if (cp === 0) return 0;
 	if (cp < 32 || (cp >= 0x7f && cp < 0xa0)) return 0;
-	if (cp >= 0x300 && cp <= 0x36f) return 0;
 	if (
-		(cp >= 0x1100 && cp <= 0x115f) ||
-		(cp >= 0x2329 && cp <= 0x232a) ||
-		(cp >= 0x2e80 && cp <= 0xa4cf) ||
-		(cp >= 0xac00 && cp <= 0xd7a3) ||
-		(cp >= 0xf900 && cp <= 0xfaff) ||
-		(cp >= 0xfe10 && cp <= 0xfe19) ||
-		(cp >= 0xfe30 && cp <= 0xfe6f) ||
-		(cp >= 0xff00 && cp <= 0xff60) ||
-		(cp >= 0xffe0 && cp <= 0xffe6) ||
-		(cp >= 0x1f300 && cp <= 0x1faff)
-	) return 2;
+		cp === 0x200d || // Zero-width joiner.
+		(cp >= 0x200b && cp <= 0x200f) || // Zero-width spaces/direction marks.
+		(cp >= 0x202a && cp <= 0x202e) ||
+		(cp >= 0x2060 && cp <= 0x206f) ||
+		(cp >= 0xfe00 && cp <= 0xfe0f) || // Emoji/text presentation selectors.
+		(cp >= 0xe0100 && cp <= 0xe01ef) || // Variation selectors supplement.
+		/\p{Mark}/u.test(ch)
+	) return 0;
+	if (inRanges(cp, WIDE_RANGES)) return 2;
 	return 1;
+}
+
+const graphemeSegmenter = typeof (Intl as any).Segmenter === "function"
+	? new (Intl as any).Segmenter(undefined, { granularity: "grapheme" })
+	: null;
+
+function graphemes(value: string): string[] {
+	if (!value) return [];
+	if (!graphemeSegmenter) return Array.from(value);
+	return Array.from(graphemeSegmenter.segment(value), (segment: any) => segment.segment as string);
+}
+
+function clusterWidth(cluster: string): number {
+	// Keycap clusters (0-9, #, *) are rendered as emoji-width even though the
+	// enclosing keycap is a combining mark and VS16 is zero-width by itself.
+	if (/^[0-9#*]\ufe0f?\u20e3$/u.test(cluster)) return 2;
+
+	const chars = Array.from(cluster);
+	// VS16 promotes text-default symbols like © and ™ to emoji presentation.
+	// Counting the whole cluster as width 2 avoids under-padding terminal lines.
+	if (chars.some(ch => ch.codePointAt(0) === 0xfe0f)) return 2;
+	// ZWJ emoji sequences render as one emoji cell pair on terminals. Width 2 is
+	// safe for common sequences; over-counting is safer than under-counting, but
+	// this keeps truncation closer to what the TUI expects.
+	if (chars.some(ch => ch.codePointAt(0) === 0x200d)) return 2;
+
+	return chars.reduce((total, ch) => total + charWidth(ch), 0);
 }
 
 export function ansiVisibleWidth(value: string): number {
 	let width = 0;
-	for (const ch of stripAnsi(value)) width += charWidth(ch);
+	for (const cluster of graphemes(stripAnsi(value))) width += clusterWidth(cluster);
 	return width;
 }
 
@@ -75,12 +119,22 @@ export function truncateAnsiToWidth(value: string, maxWidth: number): string {
 			i += ansi[0].length;
 			continue;
 		}
-		const ch = Array.from(value.slice(i))[0];
-		const w = charWidth(ch);
-		if (width + w > maxWidth) break;
-		out += ch;
-		width += w;
-		i += ch.length;
+
+		const nextAnsiIndex = value.indexOf("\x1b", i);
+		const runEnd = nextAnsiIndex === -1 ? value.length : nextAnsiIndex;
+		const run = value.slice(i, runEnd);
+		let consumed = 0;
+		for (const cluster of graphemes(run)) {
+			const w = clusterWidth(cluster);
+			if (width + w > maxWidth) {
+				return openAnsi && out && !out.endsWith(RESET) ? out + RESET : out;
+			}
+			out += cluster;
+			width += w;
+			consumed += cluster.length;
+		}
+		if (consumed === 0) consumed = Array.from(value.slice(i))[0]?.length || 1;
+		i += consumed;
 	}
 	return openAnsi && out && !out.endsWith(RESET) ? out + RESET : out;
 }

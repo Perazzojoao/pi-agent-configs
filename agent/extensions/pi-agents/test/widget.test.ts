@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { ansiVisibleWidth, buildSpecialistColorMap, renderAgentsWidget, truncateAnsiToWidth, type AgentWidgetState } from "../src/widget";
+import { ansiVisibleWidth, buildSpecialistColorMap, fitLine, renderAgentsWidget, truncateAnsiToWidth, type AgentWidgetState } from "../src/widget";
 
 const theme = {
 	fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
@@ -85,14 +85,14 @@ test("widget context color thresholds are muted, orange, error", () => {
 });
 
 test("all widget lines are width limited with ansi and emoji edge cases", () => {
-	const widths = [1, 2, 3, 5, 10, 20, 40, 106];
+	const widths = [1, 2, 3, 5, 10, 20, 40, 106, 214];
 	for (const width of widths) {
 		const lines = renderAgentsWidget([state({
 			name: "very-long-specialist-name",
 			instances: [{
 				index: 123,
 				status: "error",
-				task: "😀".repeat(30) + " a very long task that should never overflow terminal width",
+				task: "😀".repeat(30) + " a very long task that should never overflow terminal width ✅",
 				lastWork: "",
 				contextPct: 99,
 				elapsed: 123456,
@@ -102,6 +102,53 @@ test("all widget lines are width limited with ansi and emoji edge cases", () => 
 		})], width, ansiTheme);
 		for (const line of lines) assert.ok(ansiVisibleWidth(line) <= width, `line width ${ansiVisibleWidth(line)} > ${width}: ${line}`);
 	}
+});
+
+test("dingbat emoji and presentation controls are measured safely", () => {
+	assert.equal(ansiVisibleWidth("✅"), 2);
+	assert.equal(ansiVisibleWidth("✅".repeat(107)), 214);
+	assert.equal(ansiVisibleWidth("☑️"), 2);
+	assert.equal(ansiVisibleWidth("©️"), 2);
+	assert.equal(ansiVisibleWidth("™️"), 2);
+	assert.equal(ansiVisibleWidth("1️⃣"), 2);
+	assert.equal(ansiVisibleWidth("#️⃣"), 2);
+	assert.equal(ansiVisibleWidth("*️⃣"), 2);
+	assert.equal(ansiVisibleWidth("a\u0301"), 1);
+	assert.equal(ansiVisibleWidth("👩‍💻"), 2);
+
+	const width = 214;
+	const lines = renderAgentsWidget([state({
+		instances: [{
+			index: 1,
+			status: "done",
+			task: `${"✅©️™️1️⃣#️⃣*️⃣👩‍💻a\u0301".repeat(40)} finished safely`,
+			lastWork: `${"✅©️™️1️⃣#️⃣*️⃣👩‍💻a\u0301".repeat(40)} final line`,
+			contextPct: 10,
+			elapsed: 1000,
+			runCount: 1,
+			sessionFile: null,
+		}],
+	})], width, ansiTheme);
+
+	for (const line of lines) assert.ok(ansiVisibleWidth(line) <= width, `line width ${ansiVisibleWidth(line)} > ${width}: ${line}`);
+});
+
+test("fitLine and truncation do not split promoted emoji graphemes", () => {
+	const samples = ["✅", "©️", "™️", "1️⃣", "#️⃣", "*️⃣", "👩‍💻", "a\u0301"];
+	for (const sample of samples) {
+		for (const width of [1, 2, 3, 4, 5, 10]) {
+			const fitted = fitLine(`${sample}${sample}${sample}`, width);
+			assert.ok(ansiVisibleWidth(fitted) <= width, `${sample} fitted to ${width} => ${ansiVisibleWidth(fitted)}`);
+		}
+	}
+
+	assert.equal(truncateAnsiToWidth("©️x", 1), "");
+	assert.equal(truncateAnsiToWidth("™️x", 1), "");
+	assert.equal(truncateAnsiToWidth("1️⃣x", 1), "");
+	assert.equal(truncateAnsiToWidth("#️⃣x", 1), "");
+	assert.equal(truncateAnsiToWidth("*️⃣x", 1), "");
+	assert.equal(truncateAnsiToWidth("a\u0301x", 1), "a\u0301");
+	assert.equal(ansiVisibleWidth(truncateAnsiToWidth("©️™️1️⃣#️⃣*️⃣", 10)), 10);
 });
 
 test("color map remains unique for more than fourteen specialists", () => {
