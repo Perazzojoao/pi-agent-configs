@@ -16,12 +16,14 @@ export interface AgentWidgetState {
 	name: string;
 	description: string;
 	model: string;
+	thinking?: string;
 	maxCtx: number;
 	instances: AgentWidgetInstance[];
 }
 
 export interface DispatcherWidgetState {
 	model: string;
+	thinking?: string;
 	contextTokens: number;
 }
 
@@ -204,6 +206,10 @@ function contextText(theme: WidgetTheme, pct: number, value: string): string {
 	return themed(theme, "muted", value);
 }
 
+function thinkingText(value: string | undefined): string {
+	const clean = value?.trim();
+	return clean ? `(${clean})` : "";
+}
 
 function tokensK(tokens: number): number {
 	return Math.max(0, Math.round(tokens / 1000));
@@ -217,6 +223,7 @@ export function renderAgentsWidget(states: AgentWidgetState[], width: number, th
 		colorCyan("◆ Dispatcher:"),
 		colorCyan(`🧠 ${tokensK(dispatcherState.contextTokens)}k`),
 		colorCyan(dispatcherState.model),
+		thinkingText(dispatcherState.thinking) ? colorCyan(thinkingText(dispatcherState.thinking)) : "",
 	].filter(Boolean);
 	lines.push(fitLine(dispatcherParts.join("  "), width));
 
@@ -237,7 +244,7 @@ export function renderAgentsWidget(states: AgentWidgetState[], width: number, th
 		const status = themed(theme, instance.status === "error" ? "error" : instance.status === "done" ? "success" : instance.status === "running" ? "accent" : "dim", statusIcon(instance.status));
 		const currentK = Math.max(0, Math.round(state.maxCtx * (instance.contextPct || 0) / 100));
 		const ctx = contextText(theme, instance.contextPct || 0, `🧠 ${currentK}k`);
-		const model = themed(theme, "muted", state.model);
+		const model = themed(theme, "muted", [state.model, thinkingText(state.thinking)].filter(Boolean).join(" "));
 		const elapsed = instance.status === "running" || instance.elapsed > 0 ? themed(theme, "dim", `${Math.round(instance.elapsed / 1000)}s`) : "";
 		lines.push(fitLine(`|- ${nameAndIndex} ${status} • ${ctx} •  ${model}${elapsed ? `  ${elapsed}` : ""}`, width));
 
