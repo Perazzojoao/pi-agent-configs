@@ -14,7 +14,6 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { Text, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { spawn, spawnSync } from "child_process";
 import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, statSync, renameSync, realpathSync } from "fs";
 import { join, resolve } from "path";
@@ -38,6 +37,7 @@ import {
 	type DispatchMode,
 	type GitStatusSnapshot,
 } from "./core";
+import { ansiVisibleWidth, displayName, fitLine, renderAgentsWidget, type AgentWidgetState } from "./widget";
 
 // ── Types ────────────────────────────────────────
 
@@ -97,10 +97,50 @@ interface AgentResultNotice {
 	message: string;
 }
 
-// ── Display Name Helper ──────────────────────────
+type ThemeLike = {
+	fg?: (color: string, text: string) => string;
+	bold?: (text: string) => string;
+};
 
-function displayName(name: string): string {
-	return name.split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+function safeFg(theme: ThemeLike | undefined, color: string, text: string): string {
+	try {
+		return theme?.fg ? theme.fg(color, text) : text;
+	} catch {
+		return text;
+	}
+}
+
+function safeBold(theme: ThemeLike | undefined, text: string): string {
+	try {
+		return theme?.bold ? theme.bold(text) : text;
+	} catch {
+		return text;
+	}
+}
+
+function oneLine(value: unknown): string {
+	return String(value ?? "").replace(/[\r\n\t]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function limitTextLines(value: string, maxChars = 4000, maxLines = 80): { lines: string[]; truncated: boolean } {
+	const charLimited = value.length > maxChars;
+	const raw = (charLimited ? value.slice(0, maxChars) : value).split(/\r?\n/);
+	const lineLimited = raw.length > maxLines;
+	const lines = raw.slice(0, maxLines);
+	return { lines, truncated: charLimited || lineLimited };
+}
+
+function widthSafeRenderable(renderLines: (width: number) => string[]) {
+	return {
+		invalidate() {},
+		render(width: number): string[] {
+			const safeWidth = Math.max(0, Math.floor(width || 0));
+			if (safeWidth <= 0) return [""];
+			return renderLines(safeWidth)
+				.flatMap(line => String(line).split(/\r?\n/))
+				.map(line => fitLine(line, safeWidth));
+		},
+	};
 }
 
 // ── Frontmatter Parser ───────────────────────────
@@ -198,7 +238,6 @@ export default function (pi: ExtensionAPI) {
 	let allAgentDefs: AgentDef[] = [];
 	let agentConfigs: AgentConfig[] = [];
 	let agentsConfigPath = "";
-	let gridCols = 2;
 	let widgetCtx: any;
 	let sessionDir = "";
 	let tilldoneEnabled = false;
@@ -288,108 +327,31 @@ export default function (pi: ExtensionAPI) {
 			agentStates.set(def.name.toLowerCase(), createAgentState(def, { ...config, name: def.name }));
 		}
 
-		// Auto-size grid columns based on specialist count
-		const size = agentStates.size;
-		gridCols = size <= 3 ? Math.max(1, size) : size === 4 ? 2 : 3;
 	}
 
-	// ── Grid Rendering ───────────────────────────
-
-	function renderCard(state: AgentState, colWidth: number, theme: any): string[] {
-		const w = colWidth - 2;
-		const truncate = (value: string, max: number) => value.length > max ? value.slice(0, max - 3) + "..." : value;
-		const instances = state.instances;
-		const running = instances.filter(i => i.status === "running").length;
-		const errored = instances.filter(i => i.status === "error").length;
-		const done = instances.filter(i => i.status === "done").length;
-		const active = instances.find(i => i.status === "running") || [...instances].reverse().find(i => i.status !== "idle") || instances[0];
-
-		const statusColor = running > 0 ? "accent" : errored > 0 ? "error" : done > 0 ? "success" : "dim";
-		const statusIcon = running > 0 ? "●" : errored > 0 ? "✗" : done > 0 ? "✓" : "○";
-		const statusText = running > 0 ? "running" : errored > 0 ? "error" : done > 0 ? "done" : "idle";
-
-		const name = displayName(state.def.name);
-		const nameStr = theme.fg("accent", theme.bold(truncate(name, w)));
-		const nameVisible = Math.min(name.length, w);
-
-		const timeStr = active.status !== "idle" ? ` ${Math.round(active.elapsed / 1000)}s` : "";
-		const globalRunning = getGlobalRunningCount();
-		const statusStr = `${statusIcon} ${statusText} ${running} local · ${globalRunning}/${MAX_PARALLEL_DISPATCHES} global${timeStr}`;
-		const statusLine = theme.fg(statusColor, statusStr);
-		const statusVisible = statusStr.length;
-
-		const maxCtx = state.config.maxCtx ?? 100;
-		const overCtx = active.needsCompaction || active.contextPct > 100;
-		const ctxStr = overCtx
-			? `over max_ctx ${Math.ceil(active.contextPct)}%/${maxCtx}k`
-			: `ctx ${Math.ceil(active.contextPct)}%/${maxCtx}k`;
-		const ctxLine = theme.fg(overCtx ? "error" : "dim", ctxStr);
-		const ctxVisible = ctxStr.length;
-
-		const workRaw = active.task
-			? (active.lastWork || active.task)
-			: state.def.description;
-		const workText = truncate(workRaw, Math.min(50, w - 1));
-		const workLine = theme.fg("muted", workText);
-		const workVisible = workText.length;
-
-		const top = "┌" + "─".repeat(w) + "┐";
-		const bot = "└" + "─".repeat(w) + "┘";
-		const border = (content: string, visLen: number) =>
-			theme.fg("dim", "│") + content + " ".repeat(Math.max(0, w - visLen)) + theme.fg("dim", "│");
-
-		return [
-			theme.fg("dim", top),
-			border(" " + nameStr, 1 + nameVisible),
-			border(" " + statusLine, 1 + statusVisible),
-			border(" " + ctxLine, 1 + ctxVisible),
-			border(" " + workLine, 1 + workVisible),
-			theme.fg("dim", bot),
-		];
-	}
+	// ── Widget Rendering ──────────────────────────
 
 	function updateWidget() {
 		if (!widgetCtx) return;
 
-		widgetCtx.ui.setWidget("pi-agents", (_tui: any, theme: any) => {
-			const text = new Text("", 0, 1);
+		widgetCtx.ui.setWidget("pi-agents", (_tui: any, theme: any) => ({
+			render(width: number): string[] {
+				if (width <= 0) return [""];
+				if (agentStates.size === 0) {
+					return [fitLine(safeFg(theme, "dim", "No agents found. Add .md files to agents/"), width)];
+				}
 
-			return {
-				render(width: number): string[] {
-					if (agentStates.size === 0) {
-						text.setText(theme.fg("dim", "No agents found. Add .md files to agents/"));
-						return text.render(width);
-					}
-
-					const cols = Math.min(gridCols, agentStates.size);
-					const gap = 1;
-					const colWidth = Math.floor((width - gap * (cols - 1)) / cols);
-					const agents = Array.from(agentStates.values());
-					const rows: string[][] = [];
-
-					for (let i = 0; i < agents.length; i += cols) {
-						const rowAgents = agents.slice(i, i + cols);
-						const cards = rowAgents.map(a => renderCard(a, colWidth, theme));
-
-						while (cards.length < cols) {
-							cards.push(Array(6).fill(" ".repeat(colWidth)));
-						}
-
-						const cardHeight = cards[0].length;
-						for (let line = 0; line < cardHeight; line++) {
-							rows.push(cards.map(card => card[line] || ""));
-						}
-					}
-
-					const output = rows.map(cols => cols.join(" ".repeat(gap)));
-					text.setText(output.join("\n"));
-					return text.render(width);
-				},
-				invalidate() {
-					text.invalidate();
-				},
-			};
-		});
+				const states: AgentWidgetState[] = Array.from(agentStates.values()).map(state => ({
+					name: state.def.name,
+					description: state.def.description,
+					model: state.config.model || "current Pi model",
+					maxCtx: state.config.maxCtx ?? 100,
+					instances: state.instances,
+				}));
+				return renderAgentsWidget(states, width, theme);
+			},
+			invalidate() {},
+		}));
 	}
 
 	// ── Lock Manager ──────────────────────────────
@@ -1133,49 +1095,54 @@ ${cleanup.message}`;
 		},
 
 		renderCall(args, theme) {
-			const agentName = (args as any).agent || "?";
-			const task = (args as any).task || "";
-			const mode = (args as any).mode || "read";
-			const preview = task.length > 60 ? task.slice(0, 57) + "..." : task;
-			return new Text(
-				theme.fg("toolTitle", theme.bold("dispatch_agent ")) +
-				theme.fg("accent", agentName) +
-				theme.fg("dim", ` ${mode} — `) +
-				theme.fg("muted", preview),
-				0, 0,
-			);
+			return widthSafeRenderable((width) => {
+				const agentName = oneLine((args as any).agent || "?");
+				const task = oneLine((args as any).task || "");
+				const mode = oneLine((args as any).mode || "read");
+				const previewBudget = Math.max(0, width - 32);
+				const preview = previewBudget > 0 ? fitLine(task, previewBudget).trimEnd() : "";
+				return [
+					safeFg(theme, "toolTitle", safeBold(theme, "dispatch_agent ")) +
+					safeFg(theme, "accent", agentName) +
+					safeFg(theme, "dim", ` ${mode} — `) +
+					safeFg(theme, "muted", preview),
+				];
+			});
 		},
 
 		renderResult(result, options, theme) {
-			const details = result.details as any;
-			if (!details) {
-				const text = result.content[0];
-				return new Text(text?.type === "text" ? text.text : "", 0, 0);
-			}
+			return widthSafeRenderable(() => {
+				const details = result.details as any;
+				if (!details) {
+					const text = result.content[0];
+					const value = text?.type === "text" ? text.text : "";
+					const limited = limitTextLines(value, 2000, 40);
+					return limited.truncated ? [...limited.lines, safeFg(theme, "dim", "... [truncated]")] : limited.lines;
+				}
 
-			// Streaming/partial result while agent is still running
-			if (options.isPartial || details.status === "dispatching") {
-				return new Text(
-					theme.fg("accent", `● ${details.agent || "?"}`) +
-					theme.fg("dim", " working..."),
-					0, 0,
-				);
-			}
+				// Streaming/partial result while agent is still running
+				if (options.isPartial || details.status === "dispatching") {
+					return [
+						safeFg(theme, "accent", `● ${oneLine(details.agent || "?")}`) +
+						safeFg(theme, "dim", " working..."),
+					];
+				}
 
-			const icon = details.status === "done" ? "✓" : "✗";
-			const color = details.status === "done" ? "success" : "error";
-			const elapsed = typeof details.elapsed === "number" ? Math.round(details.elapsed / 1000) : 0;
-			const header = theme.fg(color, `${icon} ${details.agent}`) +
-				theme.fg("dim", ` ${elapsed}s`);
+				const icon = details.status === "done" ? "✓" : "✗";
+				const color = details.status === "done" ? "success" : "error";
+				const elapsed = typeof details.elapsed === "number" ? Math.round(details.elapsed / 1000) : 0;
+				const header = safeFg(theme, color, `${icon} ${oneLine(details.agent)}`) +
+					safeFg(theme, "dim", ` ${elapsed}s`);
 
-			if (options.expanded && details.fullOutput) {
-				const output = details.fullOutput.length > 4000
-					? details.fullOutput.slice(0, 4000) + "\n... [truncated]"
-					: details.fullOutput;
-				return new Text(header + "\n" + theme.fg("muted", output), 0, 0);
-			}
+				if (options.expanded && details.fullOutput) {
+					const limited = limitTextLines(String(details.fullOutput), 4000, 80);
+					const outputLines = limited.lines.map(line => safeFg(theme, "muted", line));
+					if (limited.truncated) outputLines.push(safeFg(theme, "dim", "... [truncated]"));
+					return [header, ...outputLines];
+				}
 
-			return new Text(header, 0, 0);
+				return [header];
+			});
 		},
 	});
 
@@ -1316,19 +1283,20 @@ ${agentCatalog}`,
 			dispose: () => {},
 			invalidate() {},
 			render(width: number): string[] {
+				if (width <= 0) return [""];
 				const model = _ctx.model?.id || "no-model";
 				const usage = _ctx.getContextUsage();
 				const pct = usage ? usage.percent : 0;
-				const filled = Math.round(pct / 10);
+				const filled = Math.max(0, Math.min(10, Math.round(pct / 10)));
 				const bar = "#".repeat(filled) + "-".repeat(10 - filled);
 
-				const left = theme.fg("dim", ` ${model}`) +
-					theme.fg("muted", " · ") +
-					theme.fg("accent", `${agentStates.size} specialists · ${getGlobalRunningCount()}/${MAX_PARALLEL_DISPATCHES} running`);
-				const right = theme.fg("dim", `[${bar}] ${Math.round(pct)}% `);
-				const pad = " ".repeat(Math.max(1, width - visibleWidth(left) - visibleWidth(right)));
+				const left = safeFg(theme, "muted", ` ${model}`) +
+					safeFg(theme, "muted", " · ") +
+					safeFg(theme, "accent", `${agentStates.size} specialists · ${getGlobalRunningCount()}/${MAX_PARALLEL_DISPATCHES} running`);
+				const right = safeFg(theme, "muted", `[${bar}] ${Math.round(pct)}% `);
+				const pad = " ".repeat(Math.max(0, width - ansiVisibleWidth(left) - ansiVisibleWidth(right)));
 
-				return [truncateToWidth(left + pad + right, width)];
+				return [fitLine(left + pad + right, width)];
 			},
 		}));
 	});
