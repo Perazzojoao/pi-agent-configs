@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { ansiVisibleWidth, buildSpecialistColorMap, fitLine, renderAgentsWidget, truncateAnsiToWidth, type AgentWidgetState } from "../src/widget";
+import { ansiVisibleWidth, buildSpecialistColorMap, fitLine, renderAgentsWidget, stripAnsi, truncateAnsiToWidth, type AgentWidgetState } from "../src/widget";
 
 const theme = {
 	fg: (color: string, text: string) => `<${color}>${text}</${color}>`,
@@ -53,15 +53,16 @@ test("widget only shows spawned/relevant instances", () => {
 	assert.doesNotMatch(lines, /Scout #1/);
 });
 
-test("widget applies requested labels and context token estimate", () => {
+test("widget applies requested labels, tree layout, and context token estimate", () => {
 	const lines = renderAgentsWidget([state({
 		instances: [{ index: 1, status: "running", task: "scan files", lastWork: "", contextPct: 50, elapsed: 1000, runCount: 1, sessionFile: null }],
-	})], 120, theme).join("\n");
+	})], 220, {}, { model: "github-copilot/gpt-5-mini", contextTokens: 1234 });
+	const plain = lines.map(stripAnsi).join("\n");
 
-	assert.match(lines, /Scout #1/);
-	assert.match(lines, /● running/);
-	assert.match(lines, /🧠 75k/);
-	assert.match(lines, /openai\/example-model/);
+	assert.match(lines[0], /^\x1b\[36m◆ Dispatcher:/);
+	assert.match(plain, /^◆ Dispatcher:  🧠 1k  github-copilot\/gpt-5-mini/);
+	assert.match(plain, /\|- ◇ Scout #1: .*● running • .*🧠 75k.* •  .*openai\/example-model-with-a-very-long-name  .*1s/);
+	assert.match(plain, /\|    ↳ .*scan files/);
 });
 
 test("widget assigns deterministic distinct colors to specialists in a render", () => {
@@ -77,7 +78,7 @@ test("widget assigns deterministic distinct colors to specialists in a render", 
 test("widget context color thresholds are muted, orange, error", () => {
 	const mk = (pct: number) => renderAgentsWidget([state({
 		instances: [{ index: 1, status: "done", task: "x", lastWork: "", contextPct: pct, elapsed: 1, runCount: 1, sessionFile: null }],
-	})], 120, theme)[0];
+	})], 120, theme)[1];
 
 	assert.match(mk(50), /<muted>🧠 75k<\/muted>/);
 	assert.match(mk(51), /\x1b\[38;5;208m🧠 77k\x1b\[0m/);

@@ -20,6 +20,11 @@ export interface AgentWidgetState {
 	instances: AgentWidgetInstance[];
 }
 
+export interface DispatcherWidgetState {
+	model: string;
+	contextTokens: number;
+}
+
 export interface WidgetTheme {
 	fg?: (color: string, text: string) => string;
 	bold?: (text: string) => string;
@@ -174,6 +179,10 @@ function color256(code: number, value: string): string {
 	return `\x1b[38;5;${code}m${value}${RESET}`;
 }
 
+function colorCyan(value: string): string {
+	return `\x1b[36m${value}${RESET}`;
+}
+
 function themed(theme: WidgetTheme, color: string, value: string): string {
 	try {
 		return theme.fg ? theme.fg(color, value) : value;
@@ -195,31 +204,45 @@ function contextText(theme: WidgetTheme, pct: number, value: string): string {
 	return themed(theme, "muted", value);
 }
 
-export function renderAgentsWidget(states: AgentWidgetState[], width: number, theme: WidgetTheme = {}): string[] {
+
+function tokensK(tokens: number): number {
+	return Math.max(0, Math.round(tokens / 1000));
+}
+
+export function renderAgentsWidget(states: AgentWidgetState[], width: number, theme: WidgetTheme = {}, dispatcher?: DispatcherWidgetState): string[] {
 	if (width <= 0) return [""];
 	const lines: string[] = [];
+	const dispatcherState = dispatcher ?? { model: "current Pi model", contextTokens: 0 };
+	const dispatcherParts = [
+		colorCyan("◆ Dispatcher:"),
+		colorCyan(`🧠 ${tokensK(dispatcherState.contextTokens)}k`),
+		colorCyan(dispatcherState.model),
+	].filter(Boolean);
+	lines.push(fitLine(dispatcherParts.join("  "), width));
+
 	const colorMap = buildSpecialistColorMap(states.map(state => state.name));
 	const instances = states.flatMap(state => state.instances
 		.filter(instance => instance.status !== "idle" || instance.runCount > 0 || !!instance.sessionFile)
 		.map(instance => ({ state, instance })));
 
 	if (instances.length === 0) {
-		return [fitLine(themed(theme, "dim", "No spawned specialists yet."), width)];
+		lines.push(fitLine(`|  ${themed(theme, "dim", "No spawned specialists yet.")}`, width));
+		return lines;
 	}
 
 	for (const { state, instance } of instances) {
 		const color = colorMap.get(state.name.toLowerCase()) ?? hslToRgb(23, 0.72, 0.68);
 		const name = displayName(state.name);
-		const nameAndIndex = colorRgb(color, `${name} #${instance.index}`);
+		const nameAndIndex = colorRgb(color, `◇ ${name} #${instance.index}:`);
 		const status = themed(theme, instance.status === "error" ? "error" : instance.status === "done" ? "success" : instance.status === "running" ? "accent" : "dim", statusIcon(instance.status));
 		const currentK = Math.max(0, Math.round(state.maxCtx * (instance.contextPct || 0) / 100));
 		const ctx = contextText(theme, instance.contextPct || 0, `🧠 ${currentK}k`);
 		const model = themed(theme, "muted", state.model);
 		const elapsed = instance.status === "running" || instance.elapsed > 0 ? themed(theme, "dim", `${Math.round(instance.elapsed / 1000)}s`) : "";
-		lines.push(fitLine([nameAndIndex, status, ctx, model, elapsed].filter(Boolean).join("  "), width));
+		lines.push(fitLine(`|- ${nameAndIndex} ${status} • ${ctx} •  ${model}${elapsed ? `  ${elapsed}` : ""}`, width));
 
 		const work = (instance.lastWork || instance.task || state.description || "").trim();
-		if (work) lines.push(fitLine(`  ${themed(theme, "muted", work)}`, width));
+		if (work) lines.push(fitLine(`|    ↳ ${themed(theme, "muted", work)}`, width));
 	}
 	return lines.map(line => fitLine(line, width));
 }
