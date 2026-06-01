@@ -5,6 +5,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+	getAutoMergeResolutionWorktreePath,
+	getAutoWorktreePath,
 	planAutoWorktreeCleanup,
 	planDispatchIsolation,
 	shouldAbortFailedBaseMerge,
@@ -34,9 +36,11 @@ test("automatic worktree isolation is planned before lock resources", () => {
 	assert.equal(shouldUseAutoWorktree("write", "../explicit", true), false);
 	assert.equal(shouldUseAutoWorktree("read", undefined, true), false);
 
-	const auto = planDispatchIsolation(base, "write", { files: ["src/a.ts"] }, true, resolve(base, ".pi/agent-worktrees/branch/builder-2"));
+	const autoPath = getAutoWorktreePath(base, "branch", "builder", 2);
+	const auto = planDispatchIsolation(base, "write", { files: ["src/a.ts"] }, true, autoPath);
 	assert.equal(auto.autoWorktree, true);
-	assert.equal(auto.runCwd.endsWith(".pi/agent-worktrees/branch/builder-2"), true);
+	assert.equal(auto.runCwd, resolve(base, "..", "worktrees", "branch", "builder-2"));
+	assert.equal(getAutoMergeResolutionWorktreePath(base, "branch-builder-2-merge-resolution"), resolve(base, "..", "worktrees", "merge-resolution", "branch-builder-2-merge-resolution"));
 
 	const explicit = planDispatchIsolation(base, "write", { files: ["src/a.ts"], worktree: "../wt" }, true);
 	assert.equal(explicit.autoWorktree, false);

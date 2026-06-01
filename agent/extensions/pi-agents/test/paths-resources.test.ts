@@ -57,7 +57,7 @@ test("declared paths allow directories and safe relative names", () => {
 
 test("dispatch resources are calculated against effective run cwd and include checkout write lock", () => {
 	const base = resolve(__dirname, "fixture-root");
-	const run = resolve(base, ".pi/agent-worktrees/branch/builder-2");
+	const run = resolve(base, "..", "worktrees", "branch", "builder-2");
 	const baseResources = getDispatchResources(base, "write", { files: ["src/a.ts"] });
 	const wtResources = getDispatchResources(run, "write", { files: ["src/a.ts"] });
 

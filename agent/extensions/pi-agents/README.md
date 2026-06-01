@@ -66,11 +66,11 @@ agent/agents/
 └── agents.yaml       # catálogo embutido atual deste repositório, com lista e overrides dos especialistas
 ```
 
-Durante a execução, a extensão também usa diretórios no projeto:
+Durante a execução, a extensão usa diretórios no projeto e, para worktrees automáticas, ao lado do projeto:
 
 ```text
 .pi/agent-sessions/          # sessões JSON dos especialistas
-.pi/agent-worktrees/         # worktrees automáticas para escritas concorrentes
+../worktrees/                # worktrees automáticas para escritas concorrentes (fora do repo)
 .pi/agents/agents.yaml       # configuração de agentes do projeto, se existir
 .pi/agents/**/*.md           # definições Markdown de agentes no projeto
 ```
@@ -358,8 +358,10 @@ Quando uma tarefa `write` começa enquanto qualquer outra escrita já está em e
 A worktree automática fica em:
 
 ```text
-.pi/agent-worktrees/<branch-atual-sanitizado>/<agent>-<instância>/
+../worktrees/<branch-atual-sanitizado>/<agent>-<instância>/
 ```
+
+Ela é criada fora da raiz do repositório (como diretório irmão sob `../worktrees`) para evitar que worktrees automáticas fiquem dentro do checkout principal ou de seus filhos.
 
 O branch criado segue o padrão:
 
@@ -387,7 +389,7 @@ A worktree é preservada para inspeção quando:
 - `files` foi declarado e há mudanças fora desses arquivos/diretórios;
 - o repositório base não está limpo;
 - `git add`, `git commit` ou `git merge` falham;
-- ocorre conflito de merge. Nesse caso, a extensão tenta `git merge --abort` no checkout base e, se o abort for seguro, cria uma worktree/branch de resolução preservável para tentar resolver determinística e automaticamente com `pi`. Se a resolução e o merge final funcionarem, as worktrees automáticas são limpas; se qualquer etapa falhar, a worktree/branch original e a de resolução (quando criada) são preservadas e reportadas.
+- ocorre conflito de merge. Nesse caso, a extensão tenta `git merge --abort` no checkout base e, se o abort for seguro, cria uma worktree/branch de resolução preservável em `../worktrees/merge-resolution/<branch-resolução-sanitizado>/` para tentar resolver determinística e automaticamente com `pi`. Se a resolução e o merge final funcionarem, as worktrees automáticas são limpas; se qualquer etapa falhar, a worktree/branch original e a de resolução (quando criada) são preservadas e reportadas.
 
 Antes de qualquer operação que altere o checkout base ou metadados compartilhados (`merge`, `merge --abort`, remoção de worktree ou deleção de branch), a extensão tenta adquirir lock exclusivo `checkout:<base>`. Se houver writer ativo no checkout base, a worktree/branch automática é preservada e o merge/cleanup é recusado de forma estruturada.
 
