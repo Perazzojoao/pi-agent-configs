@@ -13,7 +13,7 @@ agents:
 
   - builder:
     model: openai-codex/gpt-5.5
-    effort: off
+    effort: low
     tools: read,write,edit,bash,grep,find,ls
     max_ctx: 100
 
