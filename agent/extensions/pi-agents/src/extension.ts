@@ -331,8 +331,18 @@ export default function (pi: ExtensionAPI) {
 
 	// ── Widget Rendering ──────────────────────────
 
+	function getStatusText(): string {
+		return `Specialists: ${agentStates.size} · Running: ${getGlobalRunningCount()}/${MAX_PARALLEL_DISPATCHES}`;
+	}
+
+	function updateStatus() {
+		if (!widgetCtx) return;
+		widgetCtx.ui.setStatus("pi-agents", getStatusText());
+	}
+
 	function updateWidget() {
 		if (!widgetCtx) return;
+		updateStatus();
 
 		widgetCtx.ui.setWidget("pi-agents", (_tui: any, theme: any) => ({
 			render(width: number): string[] {
@@ -1278,7 +1288,7 @@ ${agentCatalog}`,
 		if (cwdEnabled) allowedTools.push("cwd");
 		pi.setActiveTools(allowedTools);
 
-		_ctx.ui.setStatus("pi-agents", `Specialists: ${agentStates.size} · Running: ${getGlobalRunningCount()}/${MAX_PARALLEL_DISPATCHES}`);
+		updateStatus();
 		const specialists = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
 		_ctx.ui.notify(
 			`Specialists: ${specialists}\n` +
