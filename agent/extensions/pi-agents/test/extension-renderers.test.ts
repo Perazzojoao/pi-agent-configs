@@ -25,3 +25,10 @@ test("extension render paths use safe theme helpers and exact-fit footer padding
 	assert.match(source, /safeFg\(theme, "muted", ` \$\{model\}`\)/);
 	assert.match(source, /Math\.max\(0, width - ansiVisibleWidth\(left\) - ansiVisibleWidth\(right\)\)/);
 });
+
+test("status bar is refreshed from updateWidget", () => {
+	assert.match(source, /function getStatusText\(\): string \{/);
+	assert.match(source, /function updateStatus\(\) \{/);
+	assert.match(source, /function updateWidget\(\) \{\s*if \(!widgetCtx\) return;\s*updateStatus\(\);/s);
+	assert.match(source, /widgetCtx\.ui\.setStatus\("pi-agents", getStatusText\(\)\);/);
+});
