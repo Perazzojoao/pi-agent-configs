@@ -379,13 +379,29 @@ export default function (pi: ExtensionAPI) {
 						}
 					}
 
-					// If a list already exists, confirm before replacing
+					// If a list already exists, confirm before replacing.
+					// For complete lists, a timeout/no-response defaults to replacing, but an explicit rejection still cancels.
 					if (tasks.length > 0 || listTitle) {
-						const confirmed = await ctx.ui.confirm(
-							'Start a new list?',
-							`This will replace${listTitle ? ` "${listTitle}"` : ' the current list'} (${tasks.length} task(s)). Continue?`,
-							{ timeout: 30000 },
-						)
+						const message = `This will replace${listTitle ? ` "${listTitle}"` : ' the current list'} (${tasks.length} task(s)). Continue?`
+						const isComplete = tasks.every(t => t.status === 'done')
+						let confirmed: boolean
+						if (isComplete) {
+							let timedOut = false
+							const timeoutMs = 30000
+							const controller = new AbortController()
+							const timeout = setTimeout(() => {
+								timedOut = true
+								controller.abort()
+							}, timeoutMs)
+							const choice = await ctx.ui.select('Start a new list?\n' + message, ['Yes', 'No'], {
+								signal: controller.signal,
+								timeout: timeoutMs,
+							})
+							clearTimeout(timeout)
+							confirmed = choice === 'Yes' || (choice === undefined && timedOut)
+						} else {
+							confirmed = await ctx.ui.confirm('Start a new list?', message, { timeout: 30000 })
+						}
 						if (!confirmed) {
 							return {
 								content: [{ type: 'text' as const, text: 'New list cancelled by user.' }],
