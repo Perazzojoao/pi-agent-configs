@@ -4,33 +4,45 @@ agents:
     effort: off
     tools: read,grep,find,ls
     max_ctx: 150
+
   - planner:
     model: openai-codex/gpt-5.5
-    effort: high
+    effort: medium
     tools: read,grep,find,ls
     max_ctx: 100
+
   - builder:
     model: openai-codex/gpt-5.5
     effort: off
     tools: read,write,edit,bash,grep,find,ls
     max_ctx: 100
+
   - reviewer:
     model: openai-codex/gpt-5.5
     effort: off
     tools: read,bash,grep,find,ls
     max_ctx: 100
+
   - documenter:
     model: openai-codex/gpt-5.5
     effort: off
     tools: read,write,edit,grep,find,ls
     max_ctx: 100
+
   - red-team:
     model: openai-codex/gpt-5.5
     effort: medium
     tools: read,bash,grep,find,ls
     max_ctx: 100
+
   - bowser:
     model: openai-codex/gpt-5.5
     effort: low
+    tools: read,bash,grep,find,ls
+    max_ctx: 100
+
+  - git-master:
+    model: github-copilot/gpt-5.3-codex
+    effort: off
     tools: read,bash,grep,find,ls
     max_ctx: 100
