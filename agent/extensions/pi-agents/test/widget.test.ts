@@ -168,3 +168,73 @@ test("ansi truncation preserves visible width", () => {
 	assert.equal(ansiVisibleWidth(out), 3);
 	assert.match(out, /\x1b\[31mabc/);
 });
+
+test("fitLine keeps ANSI background over padding and resets after the line", () => {
+	const value = "\x1b[48;5;236mtool call\x1b[0m";
+	const out = fitLine(value, 14);
+	assert.equal(ansiVisibleWidth(out), 14);
+	assert.match(out, /^\x1b\[48;5;236mtool call {5}\x1b\[0m$/);
+
+	const trueColor = fitLine("\x1b[48;2;1;2;3m✅x\x1b[0m", 6);
+	assert.equal(ansiVisibleWidth(trueColor), 6);
+	assert.match(trueColor, /^\x1b\[48;2;1;2;3m✅x {3}\x1b\[0m$/);
+});
+
+const piLikeTheme = {
+	fg: (_color: string, text: string) => `\x1b[35m${text}\x1b[39m`,
+};
+
+test("fitLine closes active background when exact truncation leaves no padding", () => {
+	const out = fitLine("\x1b[44mabcdef\x1b[0m", 3);
+	assert.equal(ansiVisibleWidth(out), 3);
+	assert.equal(out, "\x1b[44mabc\x1b[49m");
+
+	const emoji = fitLine("\x1b[44m✅abcdef\x1b[0m", 3);
+	assert.equal(ansiVisibleWidth(emoji), 3);
+	assert.equal(emoji, "\x1b[44m✅a\x1b[49m");
+});
+
+
+test("fitLine does not insert hard reset before padding for Pi-like foreground inside external background", () => {
+	const fitted = fitLine(piLikeTheme.fg("accent", "dispatch_agent scout"), 24);
+	assert.equal(ansiVisibleWidth(fitted), 24);
+	assert.doesNotMatch(fitted, /\x1b\[0m +$/);
+	assert.match(fitted, /^\x1b\[35mdispatch_agent scout\x1b\[39m {4}$/);
+
+	const hardResetForeground = fitLine("\x1b[35mdispatch_agent scout\x1b[0m", 24);
+	assert.equal(ansiVisibleWidth(hardResetForeground), 24);
+	assert.doesNotMatch(hardResetForeground, /\x1b\[0m +$/);
+	assert.match(hardResetForeground, /^\x1b\[35mdispatch_agent scout\x1b\[39m {4}$/);
+
+	const externallyPainted = `\x1b[48;5;236m${fitted}\x1b[49m`;
+	assert.match(externallyPainted, /^\x1b\[48;5;236m\x1b\[35mdispatch_agent scout\x1b\[39m {4}\x1b\[49m$/);
+});
+
+
+test("padAnsiLine does not revive backgrounds explicitly reset with 49", () => {
+	const out = fitLine("\x1b[48;5;236mbg\x1b[49m", 5);
+	assert.equal(ansiVisibleWidth(out), 5);
+	assert.equal(out, "\x1b[48;5;236mbg\x1b[49m   ");
+});
+
+test("fitLine remains width safe with background, truncation, and emoji graphemes", () => {
+	for (const width of [1, 2, 3, 4, 5, 8]) {
+		const out = fitLine("\x1b[44m✅✅abcdef\x1b[0m", width);
+		assert.ok(ansiVisibleWidth(out) <= width, `line width ${ansiVisibleWidth(out)} > ${width}`);
+		assert.equal(ansiVisibleWidth(out), width);
+		if (width > 0 && / $/.test(stripAnsi(out))) assert.match(out, /^\x1b\[44m.* +\x1b\[0m$/u);
+	}
+});
+
+test("fitLine does not treat extended foreground parameters as background", () => {
+	const out = fitLine("\x1b[38;2;44;1;2mfg\x1b[0m plain", 12);
+	assert.equal(ansiVisibleWidth(out), 12);
+	assert.ok(out.endsWith("    "), JSON.stringify(out));
+	assert.doesNotMatch(out, /\x1b\[0m +$/);
+	assert.doesNotMatch(out, /\x1b\[44m +\x1b\[0m$/);
+	assert.doesNotMatch(out, /\x1b\[48;2;44;1;2m +\x1b\[0m$/);
+
+	const indexedForeground = fitLine("\x1b[38;5;100mfg\x1b[0m plain", 12);
+	assert.equal(ansiVisibleWidth(indexedForeground), 12);
+	assert.doesNotMatch(indexedForeground, /\x1b\[100m +\x1b\[0m$/);
+});
