@@ -6,6 +6,11 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(resolve(__dirname, "../src/extension.ts"), "utf-8");
+const indexSource = readFileSync(resolve(__dirname, "../index.ts"), "utf-8");
+
+test("package entry exports extension implementation", () => {
+	assert.match(indexSource, /export \{ default \} from "\.\/src\/extension";/);
+});
 
 test("dispatch_agent custom renderers use width-safe renderables and bounded output", () => {
 	assert.match(source, /function widthSafeRenderable/);
