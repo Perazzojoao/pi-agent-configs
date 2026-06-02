@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
-import { getContextTools, mergeToolLists, normalizeContextMode } from "../src/context-mode";
+import { findContextModeExtension, getContextTools, mergeToolLists, normalizeContextMode } from "../src/context-mode";
 import { cleanYamlValue, normalizeTools, parseAgentsYaml, parseYamlValue } from "../src/yaml";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -117,9 +118,61 @@ agents:
 });
 
 test("context-mode helpers normalize profiles and merge tools without duplicates", () => {
+	assert.equal(normalizeContextMode(true), "safe");
+	assert.equal(normalizeContextMode(false), "off");
+	assert.equal(normalizeContextMode(null), "off");
+	assert.equal(normalizeContextMode(""), "off");
+	assert.equal(normalizeContextMode(" true "), "safe");
+	assert.equal(normalizeContextMode("false"), "off");
+	assert.equal(normalizeContextMode("custom"), "custom");
 	assert.equal(normalizeContextMode("unknown"), "off");
 	assert.equal(normalizeContextMode("all"), "all");
-	assert.equal(mergeToolLists("read,grep,ctx_search", ["ctx_search", "ctx_stats"]), "read,grep,ctx_search,ctx_stats");
+	assert.deepEqual(getContextTools("exec", undefined), ["ctx_execute", "ctx_execute_file", "ctx_batch_execute", "ctx_stats"]);
+	assert.deepEqual(getContextTools("all", undefined), [
+		"ctx_execute",
+		"ctx_execute_file",
+		"ctx_index",
+		"ctx_search",
+		"ctx_fetch_and_index",
+		"ctx_batch_execute",
+		"ctx_stats",
+		"ctx_doctor",
+		"ctx_upgrade",
+		"ctx_purge",
+		"ctx_insight",
+	]);
+	assert.deepEqual(getContextTools("custom", undefined), []);
+	assert.equal(mergeToolLists("read, grep, ctx_search", ["ctx_search", "ctx_stats"]), "read,grep,ctx_search,ctx_stats");
+	assert.equal(mergeToolLists("", ["ctx_search"]), "ctx_search");
+});
+
+test("findContextModeExtension returns an existing override before path discovery", () => {
+	const cwd = mkdtempSync(join(tmpdir(), "pi-agents-context-mode-"));
+	try {
+		mkdirSync(join(cwd, "overrides"), { recursive: true });
+		const override = join(cwd, "overrides", "extension.js");
+		writeFileSync(override, "export default {};\n");
+		const discovered = join(cwd, "node_modules", "context-mode", "build", "adapters", "pi", "extension.js");
+		mkdirSync(dirname(discovered), { recursive: true });
+		writeFileSync(discovered, "export default {};\n");
+
+		assert.equal(findContextModeExtension(cwd, { PI_AGENTS_CONTEXT_MODE_EXTENSION: "overrides/extension.js" }), override);
+	} finally {
+		rmSync(cwd, { recursive: true, force: true });
+	}
+});
+
+test("findContextModeExtension ignores missing overrides and discovers cwd package paths", () => {
+	const cwd = mkdtempSync(join(tmpdir(), "pi-agents-context-mode-"));
+	try {
+		const discovered = join(cwd, "node_modules", "context-mode", "build", "adapters", "pi", "extension.js");
+		mkdirSync(dirname(discovered), { recursive: true });
+		writeFileSync(discovered, "export default {};\n");
+
+		assert.equal(findContextModeExtension(cwd, { PI_AGENTS_CONTEXT_MODE_EXTENSION: "missing.js" }), discovered);
+	} finally {
+		rmSync(cwd, { recursive: true, force: true });
+	}
 });
 
 test("empty tools falls back when normalized", () => {
