@@ -1,9 +1,13 @@
+import type { ContextModeProfile } from "./context-mode";
+
 export interface AgentConfig {
 	name: string;
 	model?: string;
 	effort?: string;
 	tools?: string | string[];
 	maxCtx?: number;
+	contextMode?: ContextModeProfile;
+	contextTools?: string[];
 }
 
 export interface GitStatusSnapshot {
