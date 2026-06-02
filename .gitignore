@@ -9,3 +9,5 @@ agent/bin
 # Local Pi runtime/session files
 .pi/*
 agent/agents/.pi/*
+
+context-mode

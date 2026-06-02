@@ -17,7 +17,9 @@
     "npm:pi-fzf",
     "npm:@neilurk12/pi-lazygit",
     "git:github.com/harms-haus/pi-cwd",
-    "git:github.com/harms-haus/pi-worktrees"
+    "git:github.com/harms-haus/pi-worktrees",
+    "npm:pi-mcp-adapter",
+    "npm:context-mode"
   ],
   "worktrees": {
     "baseDir": "/home/perazzojoao/.herdr/worktrees/.pi/"

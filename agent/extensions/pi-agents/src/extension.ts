@@ -52,6 +52,19 @@ interface AgentDef {
 
 type AgentRunStatus = "idle" | "running" | "done" | "error";
 const MAX_PARALLEL_DISPATCHES = 3;
+const CONTEXT_MODE_TOOL_NAMES = [
+	"ctx_execute",
+	"ctx_execute_file",
+	"ctx_index",
+	"ctx_search",
+	"ctx_fetch_and_index",
+	"ctx_batch_execute",
+	"ctx_stats",
+	"ctx_doctor",
+	"ctx_upgrade",
+	"ctx_purge",
+	"ctx_insight",
+];
 
 interface AgentInstanceState {
 	index: number;
@@ -245,6 +258,7 @@ export default function (pi: ExtensionAPI) {
 	let sudoExecEnabled = false;
 	let askUserQuestionEnabled = false;
 	let cwdEnabled = false;
+	let contextModeToolsEnabled: string[] = [];
 
 	function loadAgents(cwd: string, ctx: any) {
 		// Create session storage dir
@@ -328,6 +342,25 @@ export default function (pi: ExtensionAPI) {
 			agentStates.set(def.name.toLowerCase(), createAgentState(def, { ...config, name: def.name }));
 		}
 
+	}
+
+	function updateDispatcherAllowlist(): string[] {
+		const currentlyActive = pi.getActiveTools();
+		const allToolNames = pi.getAllTools().map(t => t.name);
+		tilldoneEnabled = currentlyActive.includes("tilldone");
+		sudoExecEnabled = currentlyActive.includes("sudo_exec");
+		askUserQuestionEnabled = currentlyActive.includes("ask_user_question") || allToolNames.includes("ask_user_question");
+		cwdEnabled = currentlyActive.includes("cwd") || allToolNames.includes("cwd");
+		contextModeToolsEnabled = CONTEXT_MODE_TOOL_NAMES.filter(name => allToolNames.includes(name));
+
+		const allowedTools = ["dispatch_agent"];
+		if (tilldoneEnabled) allowedTools.push("tilldone");
+		if (sudoExecEnabled) allowedTools.push("sudo_exec");
+		if (askUserQuestionEnabled) allowedTools.push("ask_user_question");
+		if (cwdEnabled) allowedTools.push("cwd");
+		allowedTools.push(...contextModeToolsEnabled);
+		pi.setActiveTools(allowedTools);
+		return allowedTools;
 	}
 
 	// ── Widget Rendering ──────────────────────────
@@ -1175,6 +1208,9 @@ ${cleanup.message}`;
 	// ── System Prompt Override ───────────────────
 
 	pi.on("before_agent_start", async (_event, _ctx) => {
+		// Recompute immediately before the final prompt so late-registered tools are available.
+		updateDispatcherAllowlist();
+
 		// Build dynamic specialist catalog from agents.yaml.
 		const agentCatalog = Array.from(agentStates.values())
 			.map(s => {
@@ -1207,6 +1243,7 @@ ${cleanup.message}`;
 		if (sudoExecEnabled) dispatcherTools.push("sudo_exec");
 		if (askUserQuestionEnabled) dispatcherTools.push("ask_user_question");
 		if (cwdEnabled) dispatcherTools.push("cwd");
+		dispatcherTools.push(...contextModeToolsEnabled);
 
 		const contextNotices = recentAgentResults.length > 0
 			? `\n## Specialist context notices\n${recentAgentResults.map(n => `- ${n.agent} #${n.instance}: ${n.message}`).join("\n")}\n`
@@ -1220,7 +1257,7 @@ ${cleanup.message}`;
 You do NOT have direct access to the codebase, except sudo_exec when enabled for privileged commands and cwd when enabled only to check or change the current directory. You MUST delegate implementation work to
 specialists using the dispatch_agent tool.
 
-Available dispatcher tools: ${dispatcherTools.map(t => `\`${t}\``).join(", ")}.${askUserQuestionEnabled ? " ask_user_question may be used only for user clarification and never for codebase access." : ""}
+Available dispatcher tools: ${dispatcherTools.map(t => `\`${t}\``).join(", ")}.${askUserQuestionEnabled ? " ask_user_question may be used only for user clarification and never for codebase access." : ""}${contextModeToolsEnabled.length > 0 ? " Use context-mode tools for context preservation when processing large outputs, logs, test results, documentation, or other data-heavy content." : ""}
 
 ## Available Specialists
 You can ONLY dispatch to the specialists listed below. Do not attempt to dispatch to other agents.
@@ -1244,6 +1281,7 @@ ${tilldoneSection}${sudoExecSection}${askUserQuestionSection}${cwdSection}
 ## Rules
 - NEVER try to read, write, or execute code directly — you have no such tools, except sudo_exec when enabled for privileged commands and cwd when enabled only to check or change the current directory
 - ALWAYS use dispatch_agent for implementation work
+- When writing code, comments, documentation, or tests, MUST always take the /skill:code-quality skill into account
 - You can chain specialists: use scout to explore, then builder to implement
 - You can dispatch specialists in parallel only up to the global limit of ${MAX_PARALLEL_DISPATCHES} total running tasks and only for independent tasks with non-conflicting resources
 - Keep tasks focused — one clear objective per dispatch
@@ -1276,22 +1314,9 @@ ${agentCatalog}`,
 
 		loadAgents(_ctx.cwd, _ctx);
 
-		// Lock down codebase tools, but keep tilldone if available to avoid deadlock with task-gate extensions.
-		// Preserve sudo_exec when already active.
-		// Preserve/enable ask_user_question when the extension tool is active or registered; it does not grant codebase access.
-		// Preserve/enable cwd when active or registered; it only allows checking/changing the current directory.
-		const currentlyActive = pi.getActiveTools();
-		const allToolNames = pi.getAllTools().map(t => t.name);
-		tilldoneEnabled = currentlyActive.includes("tilldone");
-		sudoExecEnabled = currentlyActive.includes("sudo_exec");
-		askUserQuestionEnabled = currentlyActive.includes("ask_user_question") || allToolNames.includes("ask_user_question");
-		cwdEnabled = currentlyActive.includes("cwd") || allToolNames.includes("cwd");
-		const allowedTools = ["dispatch_agent"];
-		if (tilldoneEnabled) allowedTools.push("tilldone");
-		if (sudoExecEnabled) allowedTools.push("sudo_exec");
-		if (askUserQuestionEnabled) allowedTools.push("ask_user_question");
-		if (cwdEnabled) allowedTools.push("cwd");
-		pi.setActiveTools(allowedTools);
+		// Lock down codebase tools, but keep selected non-codebase tools.
+		// This also enables registered context-mode tools and safely omits them when unavailable.
+		const allowedTools = updateDispatcherAllowlist();
 
 		updateStatus();
 		const specialists = Array.from(agentStates.values()).map(s => displayName(s.def.name)).join(", ");
