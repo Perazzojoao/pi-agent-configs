@@ -16,8 +16,9 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { spawn, spawnSync } from "child_process";
 import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, statSync, renameSync, realpathSync } from "fs";
-import { join, resolve } from "path";
+import { dirname, join, resolve } from "path";
 import { homedir } from "os";
+import { fileURLToPath } from "url";
 import {
 	CONTEXT_MODE_TOOL_NAMES,
 	findContextModeExtension,
@@ -146,6 +147,27 @@ function widthSafeRenderable(renderLines: (width: number) => string[]) {
 				.map(line => fitLine(line, safeWidth));
 		},
 	};
+}
+
+function uniquePaths(paths: string[]): string[] {
+	return Array.from(new Set(paths.filter(Boolean)));
+}
+
+function readDispatcherAppendSystem(ctx: any): string {
+	const extensionDir = dirname(fileURLToPath(import.meta.url));
+	const candidates = uniquePaths([
+		ctx?.agentDir ? join(ctx.agentDir, "APPEND_SYSTEM.md") : "",
+		join(extensionDir, "..", "..", "..", "APPEND_SYSTEM.md"),
+	]);
+
+	for (const filePath of candidates) {
+		try {
+			if (existsSync(filePath)) return readFileSync(filePath, "utf-8").trim();
+		} catch {
+			// Ignore unreadable/missing append files so the extension can still start.
+		}
+	}
+	return "";
 }
 
 // ── Frontmatter Parser ───────────────────────────
@@ -1257,6 +1279,8 @@ ${cleanup.message}`;
 		const configWarnings = missingAgentWarnings.length > 0
 			? `\n## Specialist configuration warnings\n${missingAgentWarnings.map(w => `- ${w}`).join("\n")}\n`
 			: "";
+		const dispatcherAppendSystem = readDispatcherAppendSystem(_ctx);
+		const dispatcherAppendSection = dispatcherAppendSystem ? `\n\n${dispatcherAppendSystem}` : "";
 
 		return {
 			systemPrompt: `You are a dispatcher agent. You coordinate specialist agents to accomplish tasks.
@@ -1296,7 +1320,7 @@ ${tilldoneSection}${sudoExecSection}${askUserQuestionSection}${cwdSection}
 
 ## Agents
 
-${agentCatalog}`,
+${agentCatalog}${dispatcherAppendSection}`,
 		};
 	});
 
