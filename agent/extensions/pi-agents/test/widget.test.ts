@@ -63,8 +63,8 @@ test("widget applies requested labels, tree layout, context token estimate, and 
 	const plain = lines.map(stripAnsi).join("\n");
 
 	assert.match(lines[0], /^\x1b\[36m◆ Dispatcher:/);
-	assert.match(plain, /^◆ Dispatcher:  🧠 1k  github-copilot\/gpt-5-mini  \(low\)/);
-	assert.match(plain, /\|- ◇ Scout #1: .*🧠 75k.* •  .*openai\/example-model-with-a-very-long-name \(medium\) .*● running .*1s/);
+	assert.match(plain, /^◆ Dispatcher: 🧠 1k github-copilot\/gpt-5-mini \(low\)/);
+	assert.match(plain, /\|- ◇ Scout #1: .*🧠 75k.* • openai\/example-model-with-a-very-long-name \(medium\) .*● running .*1s/);
 	assert.match(plain, /\|    ↳ .*scan files/);
 });
 
@@ -79,7 +79,7 @@ test("widget hides specialist thinking when off and colors status with elapsed",
 	const plain = renderAgentsWidget([widgetState], 220, {}).map(stripAnsi).join("\n");
 	const themedLines = renderAgentsWidget([widgetState], 220, theme);
 
-	assert.match(plain, /\|- ◇ Git Master #1: 🧠 8k •  github-copilot\/gpt-5\.3-codex ✓ done 25s/);
+	assert.match(plain, /\|- ◇ Git Master #1: 🧠 8k • github-copilot\/gpt-5\.3-codex ✓ done 25s/);
 	assert.doesNotMatch(plain, /\(Off\)|\(off\)/);
 	assert.match(themedLines[1], /<success>✓ done<\/success> <success>25s<\/success>/);
 });
@@ -91,7 +91,7 @@ test("widget floors context thousands to avoid display jitter", () => {
 	})], 220, {}, { model: "github-copilot/gpt-5-mini", contextTokens: 1999 });
 	const plain = lines.map(stripAnsi).join("\n");
 
-	assert.match(plain, /^◆ Dispatcher:  🧠 1k/);
+	assert.match(plain, /^◆ Dispatcher: 🧠 1k/);
 	assert.match(plain, /🧠 19k/);
 });
 
