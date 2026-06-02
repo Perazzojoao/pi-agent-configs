@@ -423,7 +423,7 @@ max_ctx: 100
 
 corresponde a 100.000 tokens.
 
-A extensão calcula o percentual usando `usage.input / (max_ctx * 1000)`. Se o uso passar de 100%:
+A extensão calcula o percentual usando tokens de contexto (`usage.input` + tokens de cache read, quando informados, por exemplo `cache_read`, `cacheRead`, `cache_read_input_tokens` ou `cacheReadInputTokens`) dividido por `(max_ctx * 1000)`. Se o uso passar de 100%:
 
 - a instância é marcada como `needsCompaction`;
 - o dispatcher recebe um aviso de contexto;

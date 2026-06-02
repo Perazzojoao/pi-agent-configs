@@ -380,7 +380,7 @@ function thinkingText(value: string | undefined): string {
 }
 
 function tokensK(tokens: number): number {
-	return Math.max(0, Math.round(tokens / 1000));
+	return Math.max(0, Math.floor(tokens / 1000));
 }
 
 export function renderAgentsWidget(states: AgentWidgetState[], width: number, theme: WidgetTheme = {}, dispatcher?: DispatcherWidgetState): string[] {
@@ -407,7 +407,7 @@ export function renderAgentsWidget(states: AgentWidgetState[], width: number, th
 		const name = displayName(state.name);
 		const nameAndIndex = colorRgb(color, `◇ ${name} #${instance.index}:`);
 		const status = themed(theme, instance.status === "error" ? "error" : instance.status === "done" ? "success" : instance.status === "running" ? "accent" : "dim", statusIcon(instance.status));
-		const currentK = Math.max(0, Math.round(state.maxCtx * (instance.contextPct || 0) / 100));
+		const currentK = Math.max(0, Math.floor(state.maxCtx * (instance.contextPct || 0) / 100));
 		const ctx = contextText(theme, instance.contextPct || 0, `🧠 ${currentK}k`);
 		const model = themed(theme, "muted", [state.model, thinkingText(state.thinking)].filter(Boolean).join(" "));
 		const elapsed = instance.status === "running" || instance.elapsed > 0 ? themed(theme, "dim", `${Math.round(instance.elapsed / 1000)}s`) : "";

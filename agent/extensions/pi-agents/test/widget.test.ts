@@ -68,6 +68,17 @@ test("widget applies requested labels, tree layout, context token estimate, and 
 	assert.match(plain, /\|    ↳ .*scan files/);
 });
 
+test("widget floors context thousands to avoid display jitter", () => {
+	const lines = renderAgentsWidget([state({
+		maxCtx: 100,
+		instances: [{ index: 1, status: "running", task: "scan files", lastWork: "", contextPct: 19.99, elapsed: 1000, runCount: 1, sessionFile: null }],
+	})], 220, {}, { model: "github-copilot/gpt-5-mini", contextTokens: 1999 });
+	const plain = lines.map(stripAnsi).join("\n");
+
+	assert.match(plain, /^◆ Dispatcher:  🧠 1k/);
+	assert.match(plain, /🧠 19k/);
+});
+
 test("widget assigns deterministic distinct colors to specialists in a render", () => {
 	const lines = renderAgentsWidget([
 		state({ name: "scout", instances: [{ index: 1, status: "running", task: "x", lastWork: "", contextPct: 0, elapsed: 1, runCount: 1, sessionFile: null }] }),
@@ -84,7 +95,7 @@ test("widget context color thresholds are muted, orange, error", () => {
 	})], 120, theme)[1];
 
 	assert.match(mk(50), /<muted>🧠 75k<\/muted>/);
-	assert.match(mk(51), /\x1b\[38;5;208m🧠 77k\x1b\[0m/);
+	assert.match(mk(51), /\x1b\[38;5;208m🧠 76k\x1b\[0m/);
 	assert.match(mk(76), /<error>🧠 114k<\/error>/);
 });
 
