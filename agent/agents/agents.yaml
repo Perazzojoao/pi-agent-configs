@@ -23,6 +23,12 @@ agents:
     tools: read,bash,grep,find,ls
     max_ctx: 100
 
+  - qa:
+    model: openai-codex/gpt-5.5
+    effort: low
+    tools: read,write,edit,bash,grep,find,ls
+    max_ctx: 100
+
   - documenter:
     model: openai-codex/gpt-5.5
     effort: off
@@ -42,7 +48,7 @@ agents:
     max_ctx: 100
 
   - git-master:
-    model: github-copilot/gpt-5.3-codex
-    effort: off
+    model: github-copilot/gpt-5-mini
+    effort: high
     tools: read,bash,grep,find,ls
     max_ctx: 100
