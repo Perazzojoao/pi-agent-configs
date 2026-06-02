@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -34,15 +34,19 @@ test("rejects absolute or escaping declared file paths", () => {
 
 test("rejects symlink paths that resolve outside checkout including nonexistent child", () => {
 	const temp = mkdtempSync(resolve(__dirname, "tmp-symlink-"));
-	const checkout = join(temp, "checkout");
-	const outside = join(temp, "outside");
-	mkdirSync(checkout);
-	mkdirSync(outside);
-	writeFileSync(join(outside, "secret.txt"), "secret");
-	symlinkSync(outside, join(checkout, "link-out"), "dir");
+	try {
+		const checkout = join(temp, "checkout");
+		const outside = join(temp, "outside");
+		mkdirSync(checkout);
+		mkdirSync(outside);
+		writeFileSync(join(outside, "secret.txt"), "secret");
+		symlinkSync(outside, join(checkout, "link-out"), "dir");
 
-	assert.equal(validateRelativeCheckoutPath(checkout, "link-out/secret.txt").ok, false);
-	assert.equal(validateRelativeCheckoutPath(checkout, "link-out/new-file.txt").ok, false);
+		assert.equal(validateRelativeCheckoutPath(checkout, "link-out/secret.txt").ok, false);
+		assert.equal(validateRelativeCheckoutPath(checkout, "link-out/new-file.txt").ok, false);
+	} finally {
+		rmSync(temp, { recursive: true, force: true });
+	}
 });
 
 test("declared paths allow directories and safe relative names", () => {
@@ -80,13 +84,17 @@ test("base checkout lock can be canonical root even when run cwd is a subdirecto
 
 test("explicit worktree files are validated against effective checkout, not original cwd", () => {
 	const temp = mkdtempSync(resolve(__dirname, "tmp-explicit-"));
-	const base = join(temp, "base");
-	const explicit = join(temp, "explicit");
-	const outside = join(temp, "outside");
-	mkdirSync(base, { recursive: true });
-	mkdirSync(outside, { recursive: true });
-	mkdirSync(join(explicit, "only-here"), { recursive: true });
-	symlinkSync(outside, join(base, "only-here"), "dir");
-	assert.equal(validateDispatchPaths(base, { files: ["only-here/file.ts"] }).ok, false, "same file path is unsafe in original/base cwd");
-	assert.equal(validateDispatchPaths(explicit, { files: ["only-here/file.ts"] }).ok, true, "same file path is safe in explicit worktree");
+	try {
+		const base = join(temp, "base");
+		const explicit = join(temp, "explicit");
+		const outside = join(temp, "outside");
+		mkdirSync(base, { recursive: true });
+		mkdirSync(outside, { recursive: true });
+		mkdirSync(join(explicit, "only-here"), { recursive: true });
+		symlinkSync(outside, join(base, "only-here"), "dir");
+		assert.equal(validateDispatchPaths(base, { files: ["only-here/file.ts"] }).ok, false, "same file path is unsafe in original/base cwd");
+		assert.equal(validateDispatchPaths(explicit, { files: ["only-here/file.ts"] }).ok, true, "same file path is safe in explicit worktree");
+	} finally {
+		rmSync(temp, { recursive: true, force: true });
+	}
 });

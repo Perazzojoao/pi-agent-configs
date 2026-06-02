@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -18,16 +18,20 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 test("validates same git common dir and cleanup/abort decisions", () => {
 	const temp = mkdtempSync(resolve(__dirname, "tmp-common-"));
-	const repo = join(temp, "repo.git");
-	const other = join(temp, "other.git");
-	mkdirSync(repo);
-	mkdirSync(other);
-	assert.equal(validateSameGitCommonDir(repo, repo).ok, true);
-	assert.equal(validateSameGitCommonDir(repo, other).ok, false);
-	assert.deepEqual(planAutoWorktreeCleanup(0), { deleteBranch: true });
-	assert.equal(planAutoWorktreeCleanup(1).deleteBranch, false);
-	assert.equal(shouldAbortFailedBaseMerge(1), true);
-	assert.equal(shouldAbortFailedBaseMerge(0), false);
+	try {
+		const repo = join(temp, "repo.git");
+		const other = join(temp, "other.git");
+		mkdirSync(repo);
+		mkdirSync(other);
+		assert.equal(validateSameGitCommonDir(repo, repo).ok, true);
+		assert.equal(validateSameGitCommonDir(repo, other).ok, false);
+		assert.deepEqual(planAutoWorktreeCleanup(0), { deleteBranch: true });
+		assert.equal(planAutoWorktreeCleanup(1).deleteBranch, false);
+		assert.equal(shouldAbortFailedBaseMerge(1), true);
+		assert.equal(shouldAbortFailedBaseMerge(0), false);
+	} finally {
+		rmSync(temp, { recursive: true, force: true });
+	}
 });
 
 test("automatic worktree isolation is planned before lock resources", () => {

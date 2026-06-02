@@ -35,6 +35,14 @@ test("status bar is refreshed from updateWidget", () => {
 	assert.match(source, /widgetCtx\.ui\.setStatus\("pi-agents", getStatusText\(\)\);/);
 });
 
+test("agent stdout event handling is shared by streamed lines and final buffer", () => {
+	assert.match(source, /const handleAgentEvent = \(event: any\) => \{/);
+	assert.match(source, /event\.type === "message_end"[\s\S]*?updateContextPct\(extractContextTokens\(msg\.usage\)\)/);
+	assert.match(source, /event\.type === "agent_end"[\s\S]*?updateContextPct\(extractContextTokens\(last\.usage\)\)/);
+	assert.match(source, /for \(const line of lines\)[\s\S]*?handleAgentEvent\(JSON\.parse\(line\)\)/);
+	assert.match(source, /if \(buffer\.trim\(\)\)[\s\S]*?handleAgentEvent\(JSON\.parse\(buffer\)\)/);
+});
+
 test("dispatch_agent renderers inherit fitLine background padding behavior", () => {
 	assert.match(source, /\.map\(line => fitLine\(line, safeWidth\)\)/);
 

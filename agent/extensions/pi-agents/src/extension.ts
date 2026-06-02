@@ -37,6 +37,7 @@ import {
 	type DispatchMode,
 	type GitStatusSnapshot,
 } from "./core";
+import { extractContextTokens } from "./usage";
 import { ansiVisibleWidth, displayName, fitLine, renderAgentsWidget, type AgentWidgetState, type DispatcherWidgetState } from "./widget";
 
 // ── Types ────────────────────────────────────────
@@ -902,6 +903,11 @@ ${cleanup.message}`;
 		const tools = normalizeTools(agentState.config.tools, agentState.def.tools || "read,grep,find,ls");
 		const effort = agentState.config.effort || "off";
 		const maxCtxTokens = (agentState.config.maxCtx ?? 100) * 1000;
+		const updateContextPct = (contextTokens: number) => {
+			if (maxCtxTokens <= 0 || !Number.isFinite(contextTokens)) return;
+			const nextPct = Math.max(0, (contextTokens / maxCtxTokens) * 100);
+			instance.contextPct = Math.max(instance.contextPct || 0, nextPct);
+		};
 
 		const compactionNote = archiveOverMaxSession(agentKey, instance);
 		if (compactionNote.includes("could not be archived")) {
@@ -973,6 +979,35 @@ ${cleanup.message}`;
 
 			let buffer = "";
 
+			const handleAgentEvent = (event: any) => {
+				if (event.type === "message_update") {
+					const delta = event.assistantMessageEvent;
+					if (delta?.type === "text_delta") {
+						textChunks.push(delta.delta || "");
+						const full = textChunks.join("");
+						const last = full.split("\n").filter((l: string) => l.trim()).pop() || "";
+						instance.lastWork = last;
+						updateWidget();
+					}
+				} else if (event.type === "tool_execution_start") {
+					instance.toolCount++;
+					updateWidget();
+				} else if (event.type === "message_end") {
+					const msg = event.message;
+					if (msg?.usage && maxCtxTokens > 0) {
+						updateContextPct(extractContextTokens(msg.usage));
+						updateWidget();
+					}
+				} else if (event.type === "agent_end") {
+					const msgs = event.messages || [];
+					const last = [...msgs].reverse().find((m: any) => m.role === "assistant");
+					if (last?.usage && maxCtxTokens > 0) {
+						updateContextPct(extractContextTokens(last.usage));
+						updateWidget();
+					}
+				}
+			};
+
 			proc.stdout!.setEncoding("utf-8");
 			proc.stdout!.on("data", (chunk: string) => {
 				buffer += chunk;
@@ -981,33 +1016,7 @@ ${cleanup.message}`;
 				for (const line of lines) {
 					if (!line.trim()) continue;
 					try {
-						const event = JSON.parse(line);
-						if (event.type === "message_update") {
-							const delta = event.assistantMessageEvent;
-							if (delta?.type === "text_delta") {
-								textChunks.push(delta.delta || "");
-								const full = textChunks.join("");
-								const last = full.split("\n").filter((l: string) => l.trim()).pop() || "";
-								instance.lastWork = last;
-								updateWidget();
-							}
-						} else if (event.type === "tool_execution_start") {
-							instance.toolCount++;
-							updateWidget();
-						} else if (event.type === "message_end") {
-							const msg = event.message;
-							if (msg?.usage && maxCtxTokens > 0) {
-								instance.contextPct = ((msg.usage.input || 0) / maxCtxTokens) * 100;
-								updateWidget();
-							}
-						} else if (event.type === "agent_end") {
-							const msgs = event.messages || [];
-							const last = [...msgs].reverse().find((m: any) => m.role === "assistant");
-							if (last?.usage && maxCtxTokens > 0) {
-								instance.contextPct = ((last.usage.input || 0) / maxCtxTokens) * 100;
-								updateWidget();
-							}
-						}
+						handleAgentEvent(JSON.parse(line));
 					} catch {}
 				}
 			});
@@ -1018,11 +1027,7 @@ ${cleanup.message}`;
 			proc.on("close", (code) => {
 				if (buffer.trim()) {
 					try {
-						const event = JSON.parse(buffer);
-						if (event.type === "message_update") {
-							const delta = event.assistantMessageEvent;
-							if (delta?.type === "text_delta") textChunks.push(delta.delta || "");
-						}
+						handleAgentEvent(JSON.parse(buffer));
 					} catch {}
 				}
 
