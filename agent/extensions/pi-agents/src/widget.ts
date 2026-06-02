@@ -419,7 +419,7 @@ export function renderAgentsWidget(
 		colorCyan(dispatcherState.model),
 		thinkingText(dispatcherState.thinking) ? colorCyan(thinkingText(dispatcherState.thinking)) : '',
 	].filter(Boolean)
-	lines.push(fitLine(dispatcherParts.join('  '), width))
+	lines.push(fitLine(dispatcherParts.join(' '), width))
 
 	const colorMap = buildSpecialistColorMap(states.map(state => state.name))
 	const instances = states.flatMap(state =>
