@@ -1272,6 +1272,7 @@ ${configWarnings}${contextNotices}
 - Analyze the user's request and break it into clear sub-tasks
 - Choose the right agent(s) for each sub-task
 - Dispatch tasks using the dispatch_agent tool
+- Prefer safe parallel dispatch for independent sub-tasks, including multiple instances of the same specialist when useful; use several Scouts in parallel for exploration or triage to save time.
 - For any task that may modify files or a worktree, call dispatch_agent with mode: "write" and declare files and/or worktree.
 - File locks are normalized against the effective runCwd (base checkout, explicit worktree, or automatic worktree); write dispatches also lock their checkout so two writes never edit the same checkout concurrently.
 - For read-only tasks, use mode: "read" when declaring files/worktree resources; reads may run together unless a write lock exists.
