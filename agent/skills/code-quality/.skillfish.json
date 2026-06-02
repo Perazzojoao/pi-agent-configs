@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "code-quality",
+  "owner": "ivantorresedge",
+  "repo": "molcajete.ai",
+  "path": "deprecated/code-principles/skills/code-quality",
+  "branch": "master",
+  "sha": "9356ec07206a7b74cfd02fb1172ca36f6db5e688",
+  "source": "manual"
+}
