@@ -35,6 +35,30 @@ test("status bar is refreshed from updateWidget", () => {
 	assert.match(source, /widgetCtx\.ui\.setStatus\("pi-agents", getStatusText\(\)\);/);
 });
 
+test("registered context-mode tools are included in dispatcher allowlist", () => {
+	for (const toolName of [
+		"ctx_execute",
+		"ctx_execute_file",
+		"ctx_index",
+		"ctx_search",
+		"ctx_fetch_and_index",
+		"ctx_batch_execute",
+		"ctx_stats",
+		"ctx_doctor",
+		"ctx_upgrade",
+		"ctx_purge",
+		"ctx_insight",
+	]) {
+		assert.match(source, new RegExp(`"${toolName}"`));
+	}
+	assert.match(source, /function updateDispatcherAllowlist\(\): string\[] \{/);
+	assert.match(source, /contextModeToolsEnabled = CONTEXT_MODE_TOOL_NAMES\.filter\(name => allToolNames\.includes\(name\)\);/);
+	assert.match(source, /allowedTools\.push\(\.\.\.contextModeToolsEnabled\);/);
+	assert.match(source, /dispatcherTools\.push\(\.\.\.contextModeToolsEnabled\);/);
+	assert.match(source, /pi\.on\("before_agent_start", async[\s\S]*?updateDispatcherAllowlist\(\);/);
+	assert.match(source, /pi\.on\("session_start", async[\s\S]*?const allowedTools = updateDispatcherAllowlist\(\);/);
+});
+
 test("agent stdout event handling is shared by streamed lines and final buffer", () => {
 	assert.match(source, /const handleAgentEvent = \(event: any\) => \{/);
 	assert.match(source, /event\.type === "message_end"[\s\S]*?updateContextPct\(extractContextTokens\(msg\.usage\)\)/);
