@@ -1,3 +1,4 @@
+import { CONTEXT_MODE_TOOL_NAMES, normalizeContextMode } from "./context-mode";
 import type { AgentConfig } from "./types";
 
 export function cleanYamlValue(value: string): string {
@@ -28,6 +29,7 @@ export function parseAgentsYaml(raw: string): AgentConfig[] {
 	const seen = new Set<string>();
 	let inAgents = false;
 	let current: AgentConfig | null = null;
+	let activeListField: "tools" | "contextTools" | null = null;
 
 	const addAgent = (name: string): AgentConfig | null => {
 		const cleanName = cleanYamlValue(name.replace(/:$/, ""));
@@ -48,30 +50,50 @@ export function parseAgentsYaml(raw: string): AgentConfig[] {
 		}
 
 		const nestedItemMatch = line.match(/^(\s+)-\s*(.+?)\s*$/);
-		if (nestedItemMatch && nestedItemMatch[1].length > 2 && current && Array.isArray(current.tools)) {
-			current.tools.push(cleanYamlValue(nestedItemMatch[2]));
+		if (nestedItemMatch && nestedItemMatch[1].length > 2 && current && activeListField) {
+			const value = cleanYamlValue(nestedItemMatch[2]);
+			if (activeListField === "contextTools") {
+				if (CONTEXT_MODE_TOOL_NAMES.includes(value)) current.contextTools?.push(value);
+			} else {
+				current.tools = Array.isArray(current.tools) ? current.tools : [];
+				current.tools.push(value);
+			}
 			continue;
 		}
 
 		const itemMatch = line.match(/^\s*-\s*([^:]+?)\s*:?\s*$/);
 		if (itemMatch) {
 			current = addAgent(itemMatch[1]);
+			activeListField = null;
 			continue;
 		}
 
 		const scalarItemMatch = line.match(/^\s*-\s*([^:]+?)\s*:\s*(.+?)\s*$/);
 		if (scalarItemMatch) {
 			current = addAgent(scalarItemMatch[1]);
+			activeListField = null;
 			if (current) current.model = cleanYamlValue(scalarItemMatch[2]);
 			continue;
 		}
 
-		const fieldMatch = line.match(/^\s+(model|effort|tools|max_ctx):\s*(.*?)\s*$/);
+		const fieldMatch = line.match(/^\s+(model|effort|tools|max_ctx|context_mode|context_tools):\s*(.*?)\s*$/);
 		if (fieldMatch && current) {
 			const key = fieldMatch[1];
 			const value = parseYamlValue(fieldMatch[2]);
+			activeListField = null;
 			if (key === "tools" && !value) {
 				current.tools = [];
+				activeListField = "tools";
+				continue;
+			}
+			if (key === "context_tools") {
+				const tools = Array.isArray(value) ? value : value ? String(value).split(",").map(tool => cleanYamlValue(tool.trim())) : [];
+				current.contextTools = tools.filter(tool => CONTEXT_MODE_TOOL_NAMES.includes(tool));
+				if (!value || (Array.isArray(value) && value.length === 0)) activeListField = "contextTools";
+				continue;
+			}
+			if (key === "context_mode") {
+				current.contextMode = normalizeContextMode(value);
 				continue;
 			}
 			if (Array.isArray(value) ? value.length === 0 : !value) continue;

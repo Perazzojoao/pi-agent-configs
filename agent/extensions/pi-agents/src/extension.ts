@@ -19,11 +19,15 @@ import { readdirSync, readFileSync, existsSync, mkdirSync, unlinkSync, statSync,
 import { join, resolve } from "path";
 import { homedir } from "os";
 import {
+	CONTEXT_MODE_TOOL_NAMES,
+	findContextModeExtension,
+	getContextTools,
 	getAutoMergeResolutionWorktreePath,
 	getAutoWorktreePath,
 	getDispatchResources,
 	getOutOfScopeRunChanges,
 	hasDeclaredWriteScope,
+	mergeToolLists,
 	normalizeTools,
 	parseAgentsYaml,
 	parseGitStatusZ,
@@ -52,19 +56,6 @@ interface AgentDef {
 
 type AgentRunStatus = "idle" | "running" | "done" | "error";
 const MAX_PARALLEL_DISPATCHES = 3;
-const CONTEXT_MODE_TOOL_NAMES = [
-	"ctx_execute",
-	"ctx_execute_file",
-	"ctx_index",
-	"ctx_search",
-	"ctx_fetch_and_index",
-	"ctx_batch_execute",
-	"ctx_stats",
-	"ctx_doctor",
-	"ctx_upgrade",
-	"ctx_purge",
-	"ctx_insight",
-];
 
 interface AgentInstanceState {
 	index: number;
@@ -836,6 +827,18 @@ ${cleanup.message}`;
 			});
 		}
 
+		const baseTools = normalizeTools(agentState.config.tools, agentState.def.tools || "read,grep,find,ls");
+		const contextTools = getContextTools(agentState.config.contextMode, agentState.config.contextTools);
+		const tools = mergeToolLists(baseTools, contextTools);
+		const contextModeExtension = contextTools.length > 0 ? findContextModeExtension(ctx.cwd) : null;
+		if (contextTools.length > 0 && !contextModeExtension) {
+			return Promise.resolve({
+				output: `context_mode is enabled for "${agentState.def.name}" (${agentState.config.contextMode || "safe"}) but the context-mode Pi extension was not found. Set PI_AGENTS_CONTEXT_MODE_EXTENSION to the extension.js path or install context-mode under agent/npm/node_modules/context-mode.`,
+				exitCode: 1,
+				elapsed: 0,
+			});
+		}
+
 		const baseRoot = getGitRoot(ctx.cwd);
 		if (baseRoot.error || !baseRoot.path) {
 			return Promise.resolve({ output: `Dispatch refused for "${agentName}": could not determine canonical Git root for cwd ${ctx.cwd}: ${baseRoot.error}`, exitCode: 1, elapsed: 0 });
@@ -933,7 +936,6 @@ ${cleanup.message}`;
 		const model = agentState.config.model || (ctx.model
 			? `${ctx.model.provider}/${ctx.model.id}`
 			: "openai-codex/gpt-5.5");
-		const tools = normalizeTools(agentState.config.tools, agentState.def.tools || "read,grep,find,ls");
 		const effort = agentState.config.effort || "off";
 		const maxCtxTokens = (agentState.config.maxCtx ?? 100) * 1000;
 		const updateContextPct = (contextTokens: number) => {
@@ -961,6 +963,7 @@ ${cleanup.message}`;
 			"--mode", "json",
 			"-p",
 			"--no-extensions",
+			...(contextModeExtension ? ["-e", contextModeExtension] : []),
 			"--model", model,
 			"--tools", tools,
 			"--thinking", effort,
@@ -1214,11 +1217,14 @@ ${cleanup.message}`;
 		// Build dynamic specialist catalog from agents.yaml.
 		const agentCatalog = Array.from(agentStates.values())
 			.map(s => {
-				const tools = normalizeTools(s.config.tools, s.def.tools || "read,grep,find,ls");
+				const baseTools = normalizeTools(s.config.tools, s.def.tools || "read,grep,find,ls");
+				const contextTools = getContextTools(s.config.contextMode, s.config.contextTools);
+				const tools = mergeToolLists(baseTools, contextTools);
 				const model = s.config.model || "current Pi model";
 				const effort = s.config.effort || "off";
 				const maxCtx = s.config.maxCtx ?? 100;
-				return `### ${displayName(s.def.name)}\n**Dispatch as:** \`${s.def.name}\`\n${s.def.description}\n**Model:** ${model}\n**Effort:** ${effort}\n**Tools:** ${tools}\n**Max context:** ${maxCtx}k\n**Parallelism:** counts toward the global limit of ${MAX_PARALLEL_DISPATCHES} running tasks`; 
+				const contextMode = s.config.contextMode || "off";
+				return `### ${displayName(s.def.name)}\n**Dispatch as:** \`${s.def.name}\`\n${s.def.description}\n**Model:** ${model}\n**Effort:** ${effort}\n**Tools:** ${tools}\n**Context-mode:** ${contextMode}\n**Max context:** ${maxCtx}k\n**Parallelism:** counts toward the global limit of ${MAX_PARALLEL_DISPATCHES} running tasks`; 
 			})
 			.join("\n\n");
 

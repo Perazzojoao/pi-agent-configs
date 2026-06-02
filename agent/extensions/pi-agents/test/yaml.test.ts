@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { getContextTools, mergeToolLists, normalizeContextMode } from "../src/context-mode";
 import { cleanYamlValue, normalizeTools, parseAgentsYaml, parseYamlValue } from "../src/yaml";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -59,6 +60,66 @@ agents:
 	assert.equal(normalizeTools(configs[0].tools), "read,write,edit");
 	assert.deepEqual(configs[1].tools, ["read", "grep", "find"]);
 	assert.equal(normalizeTools(configs[1].tools), "read,grep,find");
+});
+
+test("parseAgentsYaml supports context-mode profiles and filtered custom tools", () => {
+	const configs = parseAgentsYaml(`
+agents:
+  - scout:
+    context_mode: true
+  - builder:
+    context_mode: custom
+    context_tools: [ctx_execute, read, ctx_search, not_a_ctx_tool]
+  - reviewer:
+    context_mode: false
+  - analyst:
+    context_mode: exec
+    context_tools:
+      - ctx_batch_execute
+      - write
+`);
+
+	assert.equal(configs[0].contextMode, "safe");
+	assert.deepEqual(getContextTools(configs[0].contextMode, configs[0].contextTools), ["ctx_execute_file", "ctx_index", "ctx_search", "ctx_fetch_and_index", "ctx_stats"]);
+	assert.equal(configs[1].contextMode, "custom");
+	assert.deepEqual(configs[1].contextTools, ["ctx_execute", "ctx_search"]);
+	assert.deepEqual(getContextTools(configs[1].contextMode, configs[1].contextTools), ["ctx_execute", "ctx_search"]);
+	assert.equal(configs[2].contextMode, "off");
+	assert.deepEqual(getContextTools(configs[2].contextMode, configs[2].contextTools), []);
+	assert.equal(configs[3].contextMode, "exec");
+	assert.deepEqual(configs[3].contextTools, ["ctx_batch_execute"]);
+});
+
+test("parseAgentsYaml tracks active nested list field in any order", () => {
+	const configs = parseAgentsYaml(`
+agents:
+  - builder:
+    context_mode: custom
+    context_tools:
+      - ctx_search
+      - write
+    tools:
+      - read
+      - edit
+  - reviewer:
+    tools:
+      - grep
+      - find
+    context_tools:
+      - ctx_execute_file
+      - not_ctx
+`);
+
+	assert.deepEqual(configs[0].contextTools, ["ctx_search"]);
+	assert.deepEqual(configs[0].tools, ["read", "edit"]);
+	assert.deepEqual(configs[1].tools, ["grep", "find"]);
+	assert.deepEqual(configs[1].contextTools, ["ctx_execute_file"]);
+});
+
+test("context-mode helpers normalize profiles and merge tools without duplicates", () => {
+	assert.equal(normalizeContextMode("unknown"), "off");
+	assert.equal(normalizeContextMode("all"), "all");
+	assert.equal(mergeToolLists("read,grep,ctx_search", ["ctx_search", "ctx_stats"]), "read,grep,ctx_search,ctx_stats");
 });
 
 test("empty tools falls back when normalized", () => {

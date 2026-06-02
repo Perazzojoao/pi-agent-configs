@@ -8,6 +8,7 @@ import { ansiVisibleWidth, fitLine } from "../src/widget";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const source = readFileSync(resolve(__dirname, "../src/extension.ts"), "utf-8");
+const contextModeSource = readFileSync(resolve(__dirname, "../src/context-mode.ts"), "utf-8");
 const indexSource = readFileSync(resolve(__dirname, "../index.ts"), "utf-8");
 
 test("package entry exports extension implementation", () => {
@@ -49,7 +50,7 @@ test("registered context-mode tools are included in dispatcher allowlist", () =>
 		"ctx_purge",
 		"ctx_insight",
 	]) {
-		assert.match(source, new RegExp(`"${toolName}"`));
+		assert.match(contextModeSource, new RegExp(`"${toolName}"`));
 	}
 	assert.match(source, /function updateDispatcherAllowlist\(\): string\[] \{/);
 	assert.match(source, /contextModeToolsEnabled = CONTEXT_MODE_TOOL_NAMES\.filter\(name => allToolNames\.includes\(name\)\);/);
@@ -57,6 +58,15 @@ test("registered context-mode tools are included in dispatcher allowlist", () =>
 	assert.match(source, /dispatcherTools\.push\(\.\.\.contextModeToolsEnabled\);/);
 	assert.match(source, /pi\.on\("before_agent_start", async[\s\S]*?updateDispatcherAllowlist\(\);/);
 	assert.match(source, /pi\.on\("session_start", async[\s\S]*?const allowedTools = updateDispatcherAllowlist\(\);/);
+});
+
+test("specialist context-mode configuration affects spawn args and missing extension errors", () => {
+	assert.match(source, /const contextTools = getContextTools\(agentState\.config\.contextMode, agentState\.config\.contextTools\);/);
+	assert.match(source, /const tools = mergeToolLists\(baseTools, contextTools\);/);
+	assert.match(source, /findContextModeExtension\(ctx\.cwd\)[\s\S]*?planDispatchIsolation\(/);
+	assert.match(source, /"--no-extensions",\s*\.\.\.\(contextModeExtension \? \["-e", contextModeExtension\] : \[\]\),/s);
+	assert.match(source, /context_mode is enabled for/);
+	assert.match(source, /PI_AGENTS_CONTEXT_MODE_EXTENSION/);
 });
 
 test("agent stdout event handling is shared by streamed lines and final buffer", () => {

@@ -137,8 +137,10 @@ agents:
   - <name>:
     model: <string>          # opcional
     effort: <string>         # opcional
-    tools: <string|string[]> # opcional
-    max_ctx: <number>        # opcional, em milhares de tokens
+    tools: <string|string[]>         # opcional
+    context_mode: <mode|boolean>     # opcional; off/safe/exec/all/custom; true=safe, false=off
+    context_tools: <string[]>        # opcional; usado com context_mode: custom
+    max_ctx: <number>                # opcional, em milhares de tokens
 ```
 
 Campos e defaults atuais:
@@ -147,7 +149,11 @@ Campos e defaults atuais:
 - `model` — modelo usado pelo subprocesso `pi` do especialista. Default: modelo atual do Pi (`ctx.model.provider/ctx.model.id`) ou, se indisponível, fallback `openai-codex/gpt-5.5`.
 - `effort` — valor passado para `--thinking`. Default: `off`.
 - `tools` — tools permitidas ao especialista. Aceita string separada por vírgulas, array inline (`[read, grep]`) ou lista YAML aninhada. Default em ordem de precedência: valor de `agents.yaml` > `tools` do frontmatter Markdown > `read,grep,find,ls`.
+- `context_mode` — perfil de context-mode para o especialista. Valores: `off`, `safe`, `exec`, `all`, `custom`; boolean `true` equivale a `safe` e `false` equivale a `off`. Default: `off`. Evite `all` como padrão; prefira `safe` ou `custom` com ferramentas mínimas.
+- `context_tools` — lista inline ou YAML de tools `ctx_*` usada quando `context_mode: custom`. Entradas não pertencentes ao context-mode são ignoradas.
 - `max_ctx` — limite de contexto em milhares de tokens. Default: `100` (100k tokens).
+
+Quando `context_mode` é diferente de `off`, a extensão mescla as tools `ctx_*` do perfil às tools do especialista e inicia o subprocesso `pi` com `--no-extensions` mais a extensão context-mode carregada explicitamente. O caminho pode ser definido por `PI_AGENTS_CONTEXT_MODE_EXTENSION`; sem override, a extensão procura instalações em `agent/npm/node_modules/context-mode/build/adapters/pi/extension.js`, `node_modules/context-mode/...` e locais globais equivalentes. Se context-mode estiver habilitado para um especialista mas a extensão não for encontrada, o dispatch retorna erro claro em vez de prosseguir silenciosamente.
 
 Formatos aceitos:
 
@@ -184,6 +190,25 @@ agents:
   - builder:
     model: openai-codex/gpt-5.5
     tools: [read, write, edit, bash, grep, find, ls]
+```
+
+Context-mode recomendado com perfil seguro:
+
+```yaml
+agents:
+  - scout:
+    tools: read,grep,find,ls
+    context_mode: safe
+```
+
+Context-mode customizado, mantendo escopo mínimo:
+
+```yaml
+agents:
+  - builder:
+    tools: read,write,edit,bash,grep,find,ls
+    context_mode: custom
+    context_tools: [ctx_execute_file, ctx_search, ctx_stats]
 ```
 
 `tools` como lista YAML aninhada:
