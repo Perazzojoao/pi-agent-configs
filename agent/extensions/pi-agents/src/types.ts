@@ -3,6 +3,7 @@ import type { ContextModeProfile } from "./context-mode";
 export interface AgentConfig {
 	name: string;
 	model?: string;
+	fallbackModel?: string;
 	effort?: string;
 	tools?: string | string[];
 	maxCtx?: number;
