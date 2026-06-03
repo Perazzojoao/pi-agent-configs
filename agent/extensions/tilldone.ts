@@ -187,6 +187,26 @@ export default function (pi: ExtensionAPI) {
 		...(error ? { error } : {}),
 	})
 
+	const TILLDONE_REORDER_GUIDANCE =
+		'Follow the TillDone execution order, or update tilldone first (remove/update/clear/new-list) so the list matches the work order.'
+
+	const buildOrderingError = (target: Task, idlePredecessor: Task) =>
+		`Cannot start task #${target.id} before earlier task #${idlePredecessor.id} is no longer idle. ${TILLDONE_REORDER_GUIDANCE}`
+
+	const buildIdleRegressionError = (target: Task, laterActiveTask: Task) =>
+		`Cannot move task #${target.id} back to idle while later task #${laterActiveTask.id} is in progress. ${TILLDONE_REORDER_GUIDANCE}`
+
+	const findIdlePredecessor = (targetIndex: number) => tasks.slice(0, targetIndex).find(t => t.status === 'idle')
+
+	const findStrictOrderingViolation = () => {
+		for (const [activeIndex, active] of tasks.entries()) {
+			if (active.status !== 'inprogress') continue
+			const idlePredecessor = findIdlePredecessor(activeIndex)
+			if (idlePredecessor) return { active, idlePredecessor }
+		}
+		return undefined
+	}
+
 	// ── UI refresh ─────────────────────────────────────────────────────
 
 	const refreshWidget = (ctx: ExtensionContext) => {
@@ -316,6 +336,17 @@ export default function (pi: ExtensionAPI) {
 				block: true,
 				reason:
 					'🚫 TillDone strict mode is active and no task is in progress. Use `tilldone toggle` to set one task to inprogress.',
+			}
+		}
+
+		const orderingViolation = findStrictOrderingViolation()
+		if (orderingViolation) {
+			return {
+				block: true,
+				reason: `🚫 TillDone strict mode ordering violation: ${buildOrderingError(
+					orderingViolation.active,
+					orderingViolation.idlePredecessor,
+				)}`,
 			}
 		}
 
@@ -487,9 +518,42 @@ export default function (pi: ExtensionAPI) {
 						}
 					}
 					const prev = task.status
-					task.status = NEXT_STATUS[task.status]
+					const next = NEXT_STATUS[task.status]
+					const taskIndex = tasks.findIndex(t => t.id === task.id)
+					const idlePredecessor = next === 'inprogress' ? findIdlePredecessor(taskIndex) : undefined
+					if (idlePredecessor) {
+						const error = buildOrderingError(task, idlePredecessor)
+						return {
+							content: [{ type: 'text' as const, text: `Error: ${error}` }],
+							details: makeDetails('toggle', error),
+						}
+					}
 
-					// Enforce single inprogress — demote any other active task
+					const earlierActiveTask =
+						next === 'inprogress' ? tasks.slice(0, taskIndex).find(t => t.status === 'inprogress') : undefined
+					if (earlierActiveTask) {
+						const error =
+							`Cannot start task #${task.id} while earlier task #${earlierActiveTask.id} is in progress. ` +
+							`Mark the earlier task done first. ${TILLDONE_REORDER_GUIDANCE}`
+						return {
+							content: [{ type: 'text' as const, text: `Error: ${error}` }],
+							details: makeDetails('toggle', error),
+						}
+					}
+
+					const laterActiveTask =
+						next === 'idle' ? tasks.slice(taskIndex + 1).find(t => t.status === 'inprogress') : undefined
+					if (laterActiveTask) {
+						const error = buildIdleRegressionError(task, laterActiveTask)
+						return {
+							content: [{ type: 'text' as const, text: `Error: ${error}` }],
+							details: makeDetails('toggle', error),
+						}
+					}
+
+					task.status = next
+
+					// Enforce single inprogress — demote any other active task.
 					const demoted: Task[] = []
 					if (task.status === 'inprogress') {
 						for (const t of tasks) {
