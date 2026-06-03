@@ -8,6 +8,24 @@ export interface AgentConfig {
 	maxCtx?: number;
 	contextMode?: ContextModeProfile;
 	contextTools?: string[];
+	instances?: number;
+}
+
+export interface RuntimeConfig {
+	maxParallelAgents: number;
+	sessionsDir: string;
+}
+
+export interface AutoWorktreeConfig {
+	baseDir: string;
+	mergeResolutionDir: string;
+}
+
+export interface AgentsYamlConfig {
+	runtime: RuntimeConfig;
+	autoWorktree: AutoWorktreeConfig;
+	agents: AgentConfig[];
+	warnings: string[];
 }
 
 export interface GitStatusSnapshot {
