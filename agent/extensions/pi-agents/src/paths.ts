@@ -1,6 +1,6 @@
 import { existsSync, realpathSync } from "fs";
 import { dirname, isAbsolute, relative, resolve } from "path";
-import type { CleanupPlan, DispatchIsolationPlan, DispatchMode, DispatchResourceOptions, ValidationResult } from "./types";
+import type { AutoWorktreeConfig, CleanupPlan, DispatchIsolationPlan, DispatchMode, DispatchResourceOptions, ValidationResult } from "./types";
 
 export function shouldUseAutoWorktree(mode: DispatchMode, explicitWorktree: string | undefined, hasConcurrentWrite: boolean): boolean {
 	return mode === "write" && !explicitWorktree?.trim() && hasConcurrentWrite;
@@ -12,6 +12,23 @@ export function sanitizeAgentKey(name: string): string | null {
 	const key = raw.replace(/\s+/g, "-");
 	if (!key || key.startsWith("-") || key.includes("..") || !/^[a-z0-9][a-z0-9._-]*$/.test(key)) return null;
 	return key;
+}
+
+export function getAgentSessionBasenames(agentName: string, instances: number): string[] {
+	const basenames = new Set<string>();
+	const count = Math.max(1, instances || 3);
+	const keys = [
+		sanitizeAgentKey(agentName),
+		// Older releases used this less strict derivation when probing existing sessions.
+		sanitizeAgentKey(agentName.toLowerCase().replace(/\s+/g, "-")),
+	].filter((key): key is string => !!key);
+
+	for (const key of keys) {
+		for (let index = 1; index <= count; index++) {
+			basenames.add(`${key}-${index}.json`);
+		}
+	}
+	return Array.from(basenames);
 }
 
 function isInsideOrEqual(root: string, target: string): boolean {
@@ -83,12 +100,13 @@ export function shouldAbortFailedBaseMerge(mergeExitCode: number): boolean {
 	return mergeExitCode !== 0;
 }
 
-export function getAutoWorktreePath(baseCwd: string, branchSlug: string, agentKey: string, instanceIndex: number): string {
-	return resolve(baseCwd, "..", "worktrees", branchSlug, `${agentKey}-${instanceIndex}`);
+export function getAutoWorktreePath(baseCwd: string, branchSlug: string, agentKey: string, instanceIndex: number, config?: AutoWorktreeConfig): string {
+	return resolve(baseCwd, config?.baseDir || "../worktrees", branchSlug, `${agentKey}-${instanceIndex}`);
 }
 
-export function getAutoMergeResolutionWorktreePath(baseCwd: string, branchSlug: string): string {
-	return resolve(baseCwd, "..", "worktrees", "merge-resolution", branchSlug);
+export function getAutoMergeResolutionWorktreePath(baseCwd: string, branchSlug: string, config?: AutoWorktreeConfig): string {
+	const autoBase = resolve(baseCwd, config?.baseDir || "../worktrees");
+	return resolve(autoBase, config?.mergeResolutionDir || "merge-resolution", branchSlug);
 }
 
 export function planDispatchIsolation(baseCwd: string, mode: DispatchMode, options: DispatchResourceOptions, hasConcurrentWrite: boolean, autoWorktreePath?: string): DispatchIsolationPlan {

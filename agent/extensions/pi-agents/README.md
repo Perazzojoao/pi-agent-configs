@@ -128,22 +128,31 @@ Se nenhum `agents.yaml` existir, ou se o arquivo existir mas não produzir nenhu
 
 ## Schema de `agents.yaml`
 
-O parser espera um objeto no topo com a chave `agents`, contendo uma lista. Cada item da lista pode ser um nome simples, um nome com campos, ou um nome cujo valor escalar é tratado como `model`.
+O parser espera um objeto no topo. `agents` contém a lista de especialistas; `runtime` e `auto_worktree` são opcionais e preservam o comportamento anterior quando omitidos. Cada item de `agents` pode ser um nome simples, um nome com campos, ou um nome cujo valor escalar é tratado como `model`.
 
 Schema lógico:
 
 ```yaml
+runtime:
+  max_parallel_agents: 3          # opcional; limite global de dispatches simultâneos
+  sessions_dir: .pi/agent-sessions # opcional; relativo ao cwd do projeto
+
+auto_worktree:
+  base_dir: ../worktrees
+  merge_resolution_dir: merge-resolution
+
 agents:
   - <name>:
-    model: <string>          # opcional
-    effort: <string>         # opcional
-    tools: <string|string[]>         # opcional
-    context_mode: <mode|boolean>     # opcional; off/safe/exec/all/custom; true=safe, false=off
-    context_tools: <string[]>        # opcional; usado com context_mode: custom
-    max_ctx: <number>                # opcional, em milhares de tokens
+    model: <string>               # opcional
+    effort: <string>              # opcional
+    tools: <string|string[]>      # opcional
+    context_mode: <mode|boolean>  # opcional
+    context_tools: <string[]>     # opcional
+    max_ctx: <number>             # opcional
+    instances: <number>           # opcional; limite paralelo do mesmo especialista
 ```
 
-Campos e defaults atuais:
+Campos e valores padrão atuais:
 
 - `name` — obrigatório em cada item. Deve corresponder, sem diferenciar maiúsculas/minúsculas, ao `name` de um arquivo `.md` descoberto.
 - `model` — modelo usado pelo subprocesso `pi` do especialista. Default: modelo atual do Pi (`ctx.model.provider/ctx.model.id`) ou, se indisponível, fallback `openai-codex/gpt-5.5`.
@@ -151,13 +160,18 @@ Campos e defaults atuais:
 - `tools` — tools permitidas ao especialista. Aceita string separada por vírgulas, array inline (`[read, grep]`) ou lista YAML aninhada. Default em ordem de precedência: valor de `agents.yaml` > `tools` do frontmatter Markdown > `read,grep,find,ls`.
 - `context_mode` — perfil de context-mode para o especialista. Valores: `off`, `safe`, `exec`, `all`, `custom`; boolean `true` equivale a `safe` e `false` equivale a `off`. Default: `off`. Evite `all` como padrão; prefira `safe` ou `custom` com ferramentas mínimas.
 - `context_tools` — lista inline ou YAML de tools `ctx_*` usada quando `context_mode: custom`. Entradas não pertencentes ao context-mode são ignoradas.
-- `max_ctx` — limite de contexto em milhares de tokens. Default: `100` (100k tokens).
+- `max_ctx` — limite de contexto em milhares de tokens. Default efetivo: `100` (100k tokens) quando o agente não define outro valor.
+- `instances` — número máximo de instâncias paralelas do mesmo especialista; também define quantos slots de sessão locais são mantidos para ele. Default: `3`.
+- `runtime.max_parallel_agents` — limite global de dispatches simultâneos. Default: `3`.
+- `runtime.sessions_dir` — diretório de sessões JSON dos especialistas, relativo ao cwd do projeto quando não absoluto. Default: `.pi/agent-sessions`.
+- `auto_worktree.base_dir` — diretório base das worktrees automáticas, relativo ao checkout base quando não absoluto. Default: `../worktrees`.
+- `auto_worktree.merge_resolution_dir` — subdiretório de resolução de merge dentro de `auto_worktree.base_dir`, ou caminho absoluto. Default: `merge-resolution`.
 
 Quando `context_mode` é diferente de `off`, a extensão mescla as tools `ctx_*` do perfil às tools do especialista e inicia o subprocesso `pi` com `--no-extensions` mais a extensão context-mode carregada explicitamente. O caminho pode ser definido por `PI_AGENTS_CONTEXT_MODE_EXTENSION`; sem override, a extensão procura instalações em `agent/npm/node_modules/context-mode/build/adapters/pi/extension.js`, `node_modules/context-mode/...` e locais globais equivalentes. Se context-mode estiver habilitado para um especialista mas a extensão não for encontrada, o dispatch retorna erro claro em vez de prosseguir silenciosamente.
 
 Formatos aceitos:
 
-Lista simples, ativando agentes pelos nomes dos `.md` e usando defaults/frontmatter:
+Lista simples, ativando agentes pelos nomes dos `.md` e usando fallbacks hardcoded/frontmatter:
 
 ```yaml
 agents:
@@ -430,7 +444,7 @@ Cada instância de especialista usa uma sessão JSON própria:
 .pi/agent-sessions/<agent>-<instância>.json
 ```
 
-No `session_start`, a extensão remove arquivos `.json` antigos em `.pi/agent-sessions/` para iniciar uma sessão nova para os subagentes.
+No `session_start`, a extensão limpa apenas os arquivos de sessão que ela pode gerar para os especialistas ativos, dentro de `runtime.sessions_dir` (por padrão, `.pi/agent-sessions/`). Arquivos `.json` não relacionados nesse diretório não são removidos.
 
 Durante a sessão atual:
 

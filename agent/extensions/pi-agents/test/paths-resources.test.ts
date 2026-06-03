@@ -5,6 +5,9 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+	getAutoMergeResolutionWorktreePath,
+	getAutoWorktreePath,
+	getAgentSessionBasenames,
 	getDeclaredRelativePaths,
 	getDispatchResources,
 	hasDeclaredWriteScope,
@@ -22,6 +25,12 @@ test("sanitizes agent keys for deterministic paths and branches", () => {
 	assert.equal(sanitizeAgentKey("---"), null);
 	assert.equal(sanitizeAgentKey("a/b"), null);
 	assert.equal(sanitizeAgentKey("a..b"), null);
+});
+
+test("returns only known generated agent session file basenames", () => {
+	assert.deepEqual(getAgentSessionBasenames("Builder Agent", 2), ["builder-agent-1.json", "builder-agent-2.json"]);
+	assert.deepEqual(getAgentSessionBasenames("../evil", 2), []);
+	assert.ok(!getAgentSessionBasenames("Builder Agent", 2).includes("unrelated.json"));
 });
 
 test("rejects absolute or escaping declared file paths", () => {
@@ -80,6 +89,17 @@ test("base checkout lock can be canonical root even when run cwd is a subdirecto
 	assert.ok(resources.includes(`checkout:${root}`));
 	assert.ok(!resources.includes(`checkout:${subdir}`));
 	assert.ok(resources.includes(`file:${resolve(subdir, "src/a.ts")}`));
+});
+
+test("auto worktree paths support configurable base and merge resolution directory", () => {
+	const base = resolve(__dirname, "fixture-root");
+	const config = {
+		baseDir: "../custom-worktrees",
+		mergeResolutionDir: "resolve",
+	};
+
+	assert.equal(getAutoWorktreePath(base, "main", "builder", 2, config), resolve(base, "..", "custom-worktrees", "main", "builder-2"));
+	assert.equal(getAutoMergeResolutionWorktreePath(base, "main-builder", config), resolve(base, "..", "custom-worktrees", "resolve", "main-builder"));
 });
 
 test("explicit worktree files are validated against effective checkout, not original cwd", () => {

@@ -1,3 +1,12 @@
+runtime:
+  max_parallel_agents: 5
+  sessions_dir: .pi/agent-sessions
+  fallback_model: openai-codex/gpt-5.5
+
+auto_worktree:
+  base_dir: ../worktrees
+  merge_resolution_dir: merge-resolution
+
 agents:
   - scout:
     model: github-copilot/gpt-5-mini
@@ -14,13 +23,15 @@ agents:
     context_mode: custom
     context_tools: [ctx_execute_file, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
     max_ctx: 100
+    instances: 1
 
   - builder:
     model: openai-codex/gpt-5.5
     effort: low
     tools: read,write,edit,bash,grep,find,ls
     context_mode: custom
-    context_tools: [ctx_execute, ctx_execute_file, ctx_batch_execute, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
+    context_tools:
+      [ctx_execute, ctx_execute_file, ctx_batch_execute, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
     max_ctx: 100
 
   - reviewer:
@@ -28,7 +39,8 @@ agents:
     effort: off
     tools: read,bash,grep,find,ls
     context_mode: custom
-    context_tools: [ctx_execute, ctx_execute_file, ctx_batch_execute, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
+    context_tools:
+      [ctx_execute, ctx_execute_file, ctx_batch_execute, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
     max_ctx: 100
 
   - qa:
@@ -36,7 +48,8 @@ agents:
     effort: low
     tools: read,write,edit,bash,grep,find,ls
     context_mode: custom
-    context_tools: [ctx_execute, ctx_execute_file, ctx_batch_execute, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
+    context_tools:
+      [ctx_execute, ctx_execute_file, ctx_batch_execute, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
     max_ctx: 100
 
   - documenter:
@@ -52,7 +65,8 @@ agents:
     effort: medium
     tools: read,bash,grep,find,ls
     context_mode: custom
-    context_tools: [ctx_execute, ctx_execute_file, ctx_batch_execute, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
+    context_tools:
+      [ctx_execute, ctx_execute_file, ctx_batch_execute, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
     max_ctx: 100
 
   - bowser:
@@ -60,7 +74,8 @@ agents:
     effort: low
     tools: read,bash,grep,find,ls
     context_mode: custom
-    context_tools: [ctx_execute, ctx_execute_file, ctx_batch_execute, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
+    context_tools:
+      [ctx_execute, ctx_execute_file, ctx_batch_execute, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
     max_ctx: 100
 
   - git-master:
@@ -68,5 +83,7 @@ agents:
     effort: high
     tools: read,bash,grep,find,ls
     context_mode: custom
-    context_tools: [ctx_execute, ctx_execute_file, ctx_batch_execute, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
+    context_tools:
+      [ctx_execute, ctx_execute_file, ctx_batch_execute, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
     max_ctx: 100
+    instances: 1

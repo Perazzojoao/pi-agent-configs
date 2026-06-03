@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { findContextModeExtension, getContextTools, mergeToolLists, normalizeContextMode } from "../src/context-mode";
-import { cleanYamlValue, normalizeTools, parseAgentsYaml, parseYamlValue } from "../src/yaml";
+import { cleanYamlValue, normalizeTools, parseAgentsYaml, parseAgentsYamlConfig, parseYamlValue } from "../src/yaml";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -115,6 +115,41 @@ agents:
 	assert.deepEqual(configs[0].tools, ["read", "edit"]);
 	assert.deepEqual(configs[1].tools, ["grep", "find"]);
 	assert.deepEqual(configs[1].contextTools, ["ctx_execute_file"]);
+});
+
+test("parseAgentsYamlConfig supports runtime, auto worktree, and per-agent instances", () => {
+	const config = parseAgentsYamlConfig(`
+runtime:
+  max_parallel_agents: 5
+  sessions_dir: .pi/custom-sessions
+auto_worktree:
+  base_dir: ../custom-worktrees
+  merge_resolution_dir: resolve
+agents:
+  - scout:
+    instances: 4
+  - builder:
+    effort: high
+`);
+
+	assert.equal(config.runtime.maxParallelAgents, 5);
+	assert.equal(config.runtime.sessionsDir, ".pi/custom-sessions");
+	assert.equal(config.autoWorktree.baseDir, "../custom-worktrees");
+	assert.equal(config.autoWorktree.mergeResolutionDir, "resolve");
+	assert.equal(config.agents[0].instances, 4);
+	assert.equal(config.agents[1].effort, "high");
+	assert.equal(config.agents[1].instances, undefined);
+});
+
+test("parseAgentsYaml remains compatible with runtime section by returning only agent entries", () => {
+	const configs = parseAgentsYaml(`
+runtime:
+  max_parallel_agents: 9
+agents:
+  - scout
+`);
+
+	assert.deepEqual(configs, [{ name: "scout" }]);
 });
 
 test("context-mode helpers normalize profiles and merge tools without duplicates", () => {
