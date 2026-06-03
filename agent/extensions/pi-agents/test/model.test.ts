@@ -8,9 +8,12 @@ import { buildModelArgs, getFallbackModelLabel, getRuntimeFallbackModel, getRunt
 
 test("runtime model helpers accept Pi model objects and string fallbacks", () => {
 	assert.equal(getRuntimeModel({ model: { provider: "provider", id: "primary" } }), "provider/primary");
+	assert.equal(getRuntimeModel({ model: { model: "provider/nested-primary" } }), "provider/nested-primary");
 	assert.equal(getRuntimeModel({ model: "provider/string-primary" }), "provider/string-primary");
 	assert.equal(getRuntimeFallbackModel({ fallback_model: { provider: "provider", id: "fallback" } }), "provider/fallback");
 	assert.equal(getRuntimeFallbackModel({ fallbackModel: "provider/camel-fallback" }), "provider/camel-fallback");
+	assert.equal(getRuntimeModel({ model: { provider: " ", id: "primary" } }), "");
+	assert.equal(getRuntimeModel({ model: { provider: "provider", id: 42 } }), "");
 });
 
 test("primary model resolution preserves model before fallback models", () => {

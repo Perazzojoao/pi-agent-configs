@@ -29,6 +29,22 @@ test("extension render paths use safe theme helpers and exact-fit footer padding
 	assert.match(source, /Math\.max\(0, width - ansiVisibleWidth\(left\) - ansiVisibleWidth\(right\)\)/);
 });
 
+test("YAML runtime config is wired into extension behavior", () => {
+	assert.match(source, /const parsedConfig = parseAgentsYamlConfig\(readFileSync\(agentsConfigPath, "utf-8"\)\);/);
+	assert.match(source, /maxParallelDispatches = parsedConfig\.runtime\.maxParallelAgents;/);
+	assert.match(source, /sessionDir = resolveSafeSessionDir\(cwd, parsedConfig\.runtime\.sessionsDir, runtimeConfigWarnings\);/);
+	assert.match(source, /autoWorktreeConfig = parsedConfig\.autoWorktree;/);
+	assert.match(source, /getAutoWorktreePath\(baseCwd, branchSlug, agentKey, instanceIndex, autoWorktreeConfig\)/);
+	assert.match(source, /getAutoMergeResolutionWorktreePath\(worktree\.baseCwd, branchSlug, autoWorktreeConfig\)/);
+	assert.match(source, /globalRunning >= maxParallelDispatches/);
+	assert.match(source, /cleanupSessionJsonFiles\(sessionDir\);/);
+});
+
+test("per-agent instances config controls local instance pool and prompt", () => {
+	assert.match(source, /Array\.from\(\{ length: Math\.max\(1, config\.instances \|\| 3\) \}/);
+	assert.match(source, /up to \$\{s\.instances\.length\} local instance\(s\), counting toward the global limit of \$\{maxParallelDispatches\}/);
+});
+
 test("status bar is refreshed from updateWidget", () => {
 	assert.match(source, /function getStatusText\(\): string \{/);
 	assert.match(source, /function updateStatus\(\) \{/);

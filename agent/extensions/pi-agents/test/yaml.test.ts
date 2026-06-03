@@ -143,6 +143,15 @@ agents:
 	assert.equal(config.agents[1].instances, undefined);
 });
 
+test("parseAgentsYamlConfig defaults match existing runtime behavior", () => {
+	const config = parseAgentsYamlConfig(`agents:\n  - scout\n`);
+
+	assert.equal(config.runtime.maxParallelAgents, 3);
+	assert.equal(config.runtime.sessionsDir, ".pi/agent-sessions");
+	assert.equal(config.autoWorktree.baseDir, "../worktrees");
+	assert.equal(config.autoWorktree.mergeResolutionDir, "merge-resolution");
+});
+
 test("parseAgentsYaml remains compatible with runtime section by returning only agent entries", () => {
 	const configs = parseAgentsYaml(`
 runtime:
@@ -222,6 +231,15 @@ agents:
 	assert.deepEqual(configs[0].tools, []);
 	assert.equal(normalizeTools(configs[0].tools, "frontmatter-tools"), "frontmatter-tools");
 	assert.equal(normalizeTools("", "frontmatter-tools"), "frontmatter-tools");
+});
+
+test("parseAgentsYaml supports one-line scalar model entries", () => {
+	const configs = parseAgentsYaml(`
+agents:
+  - scout: custom/model
+`);
+
+	assert.deepEqual(configs, [{ name: "scout", model: "custom/model" }]);
 });
 
 test("parseAgentsYaml ignores duplicate agent names case-insensitively", () => {
