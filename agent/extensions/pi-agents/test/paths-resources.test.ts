@@ -8,10 +8,12 @@ import {
 	getAutoMergeResolutionWorktreePath,
 	getAutoWorktreePath,
 	getAgentSessionBasenames,
+	planDispatchIsolation,
 	getDeclaredRelativePaths,
 	getDispatchResources,
 	hasDeclaredWriteScope,
 	isDeclaredPath,
+	shouldUseAutoWorktree,
 	sanitizeAgentKey,
 	validateDispatchPaths,
 	validateRelativeCheckoutPath,
@@ -100,6 +102,19 @@ test("auto worktree paths support configurable base and merge resolution directo
 
 	assert.equal(getAutoWorktreePath(base, "main", "builder", 2, config), resolve(base, "..", "custom-worktrees", "main", "builder-2"));
 	assert.equal(getAutoMergeResolutionWorktreePath(base, "main-builder", config), resolve(base, "..", "custom-worktrees", "resolve", "main-builder"));
+});
+
+test("dispatch isolation distinguishes base, explicit, and automatic worktrees", () => {
+	const base = resolve(__dirname, "fixture-root");
+	const automatic = resolve(base, "..", "worktrees", "branch", "builder-1");
+
+	assert.equal(shouldUseAutoWorktree("read", undefined, true), false);
+	assert.equal(shouldUseAutoWorktree("write", "../explicit", true), false);
+	assert.equal(shouldUseAutoWorktree("write", undefined, false), false);
+	assert.equal(shouldUseAutoWorktree("write", " ", true), true);
+	assert.deepEqual(planDispatchIsolation(base, "read", {}, true), { runCwd: base, autoWorktree: false, explicitWorktree: false });
+	assert.deepEqual(planDispatchIsolation(base, "write", { worktree: "../explicit" }, true), { runCwd: resolve(base, "../explicit"), autoWorktree: false, explicitWorktree: true });
+	assert.deepEqual(planDispatchIsolation(base, "write", {}, true, automatic), { runCwd: automatic, autoWorktree: true, explicitWorktree: false });
 });
 
 test("explicit worktree files are validated against effective checkout, not original cwd", () => {
