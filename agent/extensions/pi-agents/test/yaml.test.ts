@@ -32,6 +32,7 @@ agents:
   - scout
   - planner:
     model: custom/model
+    fallback_model: fallback/model
     effort: high
     tools: read,grep
     max_ctx: 150
@@ -40,6 +41,7 @@ agents:
 	assert.deepEqual(configs[0], { name: "scout" });
 	assert.equal(configs[1].name, "planner");
 	assert.equal(configs[1].model, "custom/model");
+	assert.equal(configs[1].fallbackModel, "fallback/model");
 	assert.equal(configs[1].effort, "high");
 	assert.equal(configs[1].tools, "read,grep");
 	assert.equal(configs[1].maxCtx, 150);

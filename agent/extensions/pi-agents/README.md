@@ -143,19 +143,21 @@ auto_worktree:
 
 agents:
   - <name>:
-    model: <string>               # opcional
-    effort: <string>              # opcional
-    tools: <string|string[]>      # opcional
-    context_mode: <mode|boolean>  # opcional
-    context_tools: <string[]>     # opcional
-    max_ctx: <number>             # opcional
-    instances: <number>           # opcional; limite paralelo do mesmo especialista
+    model: <string>                  # opcional; modelo primário
+    fallback_model: <string>         # opcional; retry quando o primário falha
+    effort: <string>                 # opcional
+    tools: <string|string[]>         # opcional
+    context_mode: <mode|boolean>     # opcional; off/safe/exec/all/custom; true=safe, false=off
+    context_tools: <string[]>        # opcional; usado com context_mode: custom
+    max_ctx: <number>                # opcional, em milhares de tokens
+    instances: <number>              # opcional; limite paralelo do mesmo especialista
 ```
 
 Campos e valores padrão atuais:
 
 - `name` — obrigatório em cada item. Deve corresponder, sem diferenciar maiúsculas/minúsculas, ao `name` de um arquivo `.md` descoberto.
-- `model` — modelo usado pelo subprocesso `pi` do especialista. Default: modelo atual do Pi (`ctx.model.provider/ctx.model.id`) ou, se indisponível, fallback `openai-codex/gpt-5.5`.
+- `model` — modelo primário usado pelo subprocesso `pi` do especialista. Precedência: `agents.yaml` (`agent.model`) > modelo runtime do Pi (`ctx.model.provider/ctx.model.id`).
+- `fallback_model` — modelo usado pela extensão em uma segunda tentativa quando o primário falha com sinais elegíveis no texto de falha do processo/erro. A documentação oficial/local/remota do Pi CLI não garante suporte a `--fallback-model`, portanto a extensão não passa esse argumento ao CLI; cada tentativa recebe apenas `--model <modelo-da-tentativa>`. Precedência: `agent.fallback_model` > `ctx.fallback_model`/`ctx.fallbackModel` > default dinâmico de `<ctx.agentDir>/settings.json` (`${defaultProvider}/${defaultModel}`) > fallback seguro final `openai-codex/gpt-5.5`.
 - `effort` — valor passado para `--thinking`. Default: `off`.
 - `tools` — tools permitidas ao especialista. Aceita string separada por vírgulas, array inline (`[read, grep]`) ou lista YAML aninhada. Default em ordem de precedência: valor de `agents.yaml` > `tools` do frontmatter Markdown > `read,grep,find,ls`.
 - `context_mode` — perfil de context-mode para o especialista. Valores: `off`, `safe`, `exec`, `all`, `custom`; boolean `true` equivale a `safe` e `false` equivale a `off`. Default: `off`. Evite `all` como padrão; prefira `safe` ou `custom` com ferramentas mínimas.
@@ -168,6 +170,14 @@ Campos e valores padrão atuais:
 - `auto_worktree.merge_resolution_dir` — subdiretório de resolução de merge dentro de `auto_worktree.base_dir`, ou caminho absoluto. Default: `merge-resolution`.
 
 Quando `context_mode` é diferente de `off`, a extensão mescla as tools `ctx_*` do perfil às tools do especialista e inicia o subprocesso `pi` com `--no-extensions` mais a extensão context-mode carregada explicitamente. O caminho pode ser definido por `PI_AGENTS_CONTEXT_MODE_EXTENSION`; sem override, a extensão procura instalações em `agent/npm/node_modules/context-mode/build/adapters/pi/extension.js`, `node_modules/context-mode/...` e locais globais equivalentes. Se context-mode estiver habilitado para um especialista mas a extensão não for encontrada, o dispatch retorna erro claro em vez de prosseguir silenciosamente.
+
+### Fallback de modelo
+
+`fallback_model` é gerenciado pela própria extensão via retry porque o Pi CLI não documenta suporte garantido a `--fallback-model`. A primeira tentativa usa o modelo primário (`agent.model > ctx.model`) com `--model`. Se não houver modelo primário, o fallback/default resolvido pode ser usado como modelo inicial via `--model`, sem segunda tentativa de retry. Quando há primário, a extensão faz no máximo uma nova tentativa com `fallback_model` se sinais elegíveis aparecerem no texto de falha do processo/erro (`stderr` ou erro de spawn): provider/model/API/rate limit/quota, ou timeout de tool/test/comando. Esses sinais não são inferidos genericamente de qualquer `stdout`/output do agente. O retry usa o mesmo arquivo `--session`; quando o arquivo de sessão já existe após a primeira tentativa, a segunda tentativa também usa `-c`. A tarefa reenviada inclui uma nota curta com o diagnóstico da falha anterior para orientar a tentativa com fallback. Não há retry quando primário e fallback são iguais, quando não há primário, ou depois que uma tentativa de fallback já foi iniciada.
+
+### Defaults de modelo em `settings.json`
+
+Quando nenhum `fallback_model` do agente nem fallback runtime (`ctx.fallback_model`/`ctx.fallbackModel`) é informado, a extensão lê `<ctx.agentDir>/settings.json` e monta o fallback dinâmico a partir de `defaultProvider/defaultModel`. Se o arquivo não existir, estiver inválido ou não tiver os dois campos, ela usa o fallback seguro final `openai-codex/gpt-5.5`.
 
 Formatos aceitos:
 
@@ -186,12 +196,13 @@ agents:
   - scout: openai-codex/gpt-5.5
 ```
 
-Campos explícitos com `tools` como string:
+Campos explícitos com `tools` como string e fallback próprio do agente:
 
 ```yaml
 agents:
   - scout:
-    model: openai-codex/gpt-5.5
+    model: github-copilot/gpt-5-mini
+    fallback_model: openai-codex/gpt-5.5
     effort: off
     tools: read,grep,find,ls
     max_ctx: 150
@@ -203,6 +214,7 @@ agents:
 agents:
   - builder:
     model: openai-codex/gpt-5.5
+    fallback_model: openai-codex/gpt-5.5
     tools: [read, write, edit, bash, grep, find, ls]
 ```
 
@@ -239,44 +251,89 @@ agents:
     max_ctx: 100
 ```
 
-O arquivo atual em `agent/agents/agents.yaml` lista estes especialistas com overrides explícitos:
+O arquivo atual em `agent/agents/agents.yaml` lista estes especialistas com overrides explícitos. Cada agente pode declarar `fallback_model`; quando omitido, a extensão resolve o fallback pelos defaults runtime/settings descritos acima.
 
 ```yaml
 agents:
   - scout:
-    model: openai-codex/gpt-5.5
+    model: github-copilot/gpt-5-mini
+    fallback_model: openai-codex/gpt-5.5
     effort: off
     tools: read,grep,find,ls
+    context_mode: custom
+    context_tools: [ctx_execute_file, ctx_index, ctx_search, ctx_stats]
     max_ctx: 150
+
   - planner:
     model: openai-codex/gpt-5.5
-    effort: high
+    fallback_model: openai-codex/gpt-5.5
+    effort: medium
     tools: read,grep,find,ls
+    context_mode: custom
+    context_tools: [ctx_execute_file, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
     max_ctx: 100
+
   - builder:
     model: openai-codex/gpt-5.5
-    effort: off
+    fallback_model: openai-codex/gpt-5.5
+    effort: low
     tools: read,write,edit,bash,grep,find,ls
+    context_mode: custom
+    context_tools: [ctx_execute, ctx_execute_file, ctx_batch_execute, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
     max_ctx: 100
+
   - reviewer:
     model: openai-codex/gpt-5.5
+    fallback_model: openai-codex/gpt-5.5
     effort: off
     tools: read,bash,grep,find,ls
+    context_mode: custom
+    context_tools: [ctx_execute, ctx_execute_file, ctx_batch_execute, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
     max_ctx: 100
+
+  - qa:
+    model: openai-codex/gpt-5.5
+    fallback_model: openai-codex/gpt-5.5
+    effort: low
+    tools: read,write,edit,bash,grep,find,ls
+    context_mode: custom
+    context_tools: [ctx_execute, ctx_execute_file, ctx_batch_execute, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
+    max_ctx: 100
+
   - documenter:
     model: openai-codex/gpt-5.5
+    fallback_model: openai-codex/gpt-5.5
     effort: off
     tools: read,write,edit,grep,find,ls
+    context_mode: custom
+    context_tools: [ctx_execute_file, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
     max_ctx: 100
+
   - red-team:
     model: openai-codex/gpt-5.5
-    effort: off
+    fallback_model: openai-codex/gpt-5.5
+    effort: medium
     tools: read,bash,grep,find,ls
+    context_mode: custom
+    context_tools: [ctx_execute, ctx_execute_file, ctx_batch_execute, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
     max_ctx: 100
+
   - bowser:
     model: openai-codex/gpt-5.5
-    effort: off
+    fallback_model: openai-codex/gpt-5.5
+    effort: low
     tools: read,bash,grep,find,ls
+    context_mode: custom
+    context_tools: [ctx_execute, ctx_execute_file, ctx_batch_execute, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
+    max_ctx: 100
+
+  - git-master:
+    model: github-copilot/gpt-5-mini
+    fallback_model: openai-codex/gpt-5.5
+    effort: high
+    tools: read,bash,grep,find,ls
+    context_mode: custom
+    context_tools: [ctx_execute, ctx_execute_file, ctx_batch_execute, ctx_index, ctx_search, ctx_fetch_and_index, ctx_stats]
     max_ctx: 100
 ```
 
@@ -292,13 +349,13 @@ No evento `session_start`, a extensão substitui as tools ativas do agente princ
 
 O dispatcher não deve ler, escrever, buscar nem executar código diretamente. Ele deve decompor o pedido do usuário e delegar trabalho aos especialistas com `dispatch_agent`.
 
-Cada especialista é executado em um subprocesso:
+Cada especialista é executado em um subprocesso. A extensão sempre passa o modelo da tentativa atual com `--model`; ela não depende de um argumento `--fallback-model` do Pi CLI:
 
 ```bash
-pi --mode json -p --no-extensions --model <model> --tools <tools> --thinking <effort> --append-system-prompt <prompt> --session <session>
+pi --mode json -p --no-extensions --model <model-da-tentativa> --tools <tools> --thinking <effort> --append-system-prompt <prompt> --session <session>
 ```
 
-Isso garante que a restrição de tools do dispatcher não impeça especialistas de usar as tools declaradas para eles.
+Isso garante que a restrição de tools do dispatcher não impeça especialistas de usar as tools declaradas para eles. Em retry por fallback, a nova tentativa chama `pi --model <fallback_model>` e preserva/reusa a sessão quando possível.
 
 ## Tool `dispatch_agent`
 

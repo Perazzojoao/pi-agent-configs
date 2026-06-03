@@ -33,6 +33,12 @@ import {
 	normalizeTools,
 	parseAgentsYamlConfig,
 	parseGitStatusZ,
+	buildModelArgs,
+	getFallbackModelLabel,
+	isModelFallbackEligibleFailure,
+	getRuntimeModel,
+	resolveFallbackModel,
+	resolvePrimaryModel,
 	planAutoWorktreeCleanup,
 	planDispatchIsolation,
 	sanitizeAgentKey,
@@ -168,8 +174,8 @@ function uniquePaths(paths: string[]): string[] {
 function readDispatcherAppendSystem(ctx: any): string {
 	const extensionDir = dirname(fileURLToPath(import.meta.url))
 	const candidates = uniquePaths([
-		ctx?.agentDir ? join(ctx.agentDir, 'APPEND_SYSTEM.md') : '',
-		join(extensionDir, '..', '..', '..', 'APPEND_SYSTEM.md'),
+		ctx?.agentDir ? join(ctx.agentDir, "APPEND_SYSTEM.md") : "",
+		join(extensionDir, "..", "..", "..", "APPEND_SYSTEM.md"),
 	])
 
 	for (const filePath of candidates) {
@@ -375,14 +381,14 @@ export default function (pi: ExtensionAPI) {
 		sudoExecEnabled = currentlyActive.includes('sudo_exec')
 		askUserQuestionEnabled = currentlyActive.includes('ask_user_question') || allToolNames.includes('ask_user_question')
 		cwdEnabled = currentlyActive.includes('cwd') || allToolNames.includes('cwd')
-		contextModeToolsEnabled = CONTEXT_MODE_TOOL_NAMES.filter(name => allToolNames.includes(name))
+		contextModeToolsEnabled = CONTEXT_MODE_TOOL_NAMES.filter(name => allToolNames.includes(name));
 
 		const allowedTools = ['dispatch_agent']
 		if (tilldoneEnabled) allowedTools.push('tilldone')
 		if (sudoExecEnabled) allowedTools.push('sudo_exec')
 		if (askUserQuestionEnabled) allowedTools.push('ask_user_question')
 		if (cwdEnabled) allowedTools.push('cwd')
-		allowedTools.push(...contextModeToolsEnabled)
+		allowedTools.push(...contextModeToolsEnabled);
 		pi.setActiveTools(allowedTools)
 		return allowedTools
 	}
@@ -395,22 +401,21 @@ export default function (pi: ExtensionAPI) {
 
 	function updateStatus() {
 		if (!widgetCtx) return
-		widgetCtx.ui.setStatus('pi-agents', getStatusText())
+		widgetCtx.ui.setStatus("pi-agents", getStatusText());
 	}
 
 	function updateWidget() {
-		if (!widgetCtx) return
-		updateStatus()
+		if (!widgetCtx) return;
+		updateStatus();
 
 		widgetCtx.ui.setWidget('pi-agents', (_tui: any, theme: any) => ({
 			render(width: number): string[] {
 				if (width <= 0) return ['']
-				const dispatcherModel = widgetCtx.model
-					? `${widgetCtx.model.provider}/${widgetCtx.model.id}`
-					: 'current Pi model'
+				const dispatcherModel = getRuntimeModel(widgetCtx) || 'current Pi model'
 				const usage = typeof widgetCtx.getContextUsage === 'function' ? widgetCtx.getContextUsage() : undefined
 				const dispatcher: DispatcherWidgetState = {
 					model: dispatcherModel,
+					fallbackModel: getFallbackModelLabel({}, widgetCtx),
 					contextTokens: usage?.tokens ?? 0,
 					thinking: typeof pi.getThinkingLevel === 'function' ? pi.getThinkingLevel() : '',
 				}
@@ -422,7 +427,8 @@ export default function (pi: ExtensionAPI) {
 				const states: AgentWidgetState[] = Array.from(agentStates.values()).map(state => ({
 					name: state.def.name,
 					description: state.def.description,
-					model: state.config.model || 'current Pi model',
+					model: state.config.model || getRuntimeModel(widgetCtx) || getFallbackModelLabel(state.config, widgetCtx),
+					fallbackModel: getFallbackModelLabel(state.config, widgetCtx),
 					thinking: state.config.effort || '',
 					maxCtx: state.config.maxCtx ?? 100,
 					instances: state.instances,
@@ -977,8 +983,8 @@ ${cleanup.message}`
 		}
 
 		const baseTools = normalizeTools(agentState.config.tools, agentState.def.tools || 'read,grep,find,ls')
-		const contextTools = getContextTools(agentState.config.contextMode, agentState.config.contextTools)
-		const tools = mergeToolLists(baseTools, contextTools)
+		const contextTools = getContextTools(agentState.config.contextMode, agentState.config.contextTools);
+		const tools = mergeToolLists(baseTools, contextTools);
 		const contextModeExtension = contextTools.length > 0 ? findContextModeExtension(ctx.cwd) : null
 		if (contextTools.length > 0 && !contextModeExtension) {
 			return Promise.resolve({
@@ -1104,8 +1110,8 @@ ${cleanup.message}`
 			updateWidget()
 		}, 1000)
 
-		const model =
-			agentState.config.model || (ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : 'openai-codex/gpt-5.5')
+		const primaryModel = resolvePrimaryModel(agentState.config, ctx);
+		const fallbackModel = resolveFallbackModel(agentState.config, ctx);
 		const effort = agentState.config.effort || 'off'
 		const maxCtxTokens = (agentState.config.maxCtx ?? 100) * 1000
 		const updateContextPct = (contextTokens: number) => {
@@ -1129,41 +1135,44 @@ ${cleanup.message}`
 		}
 		const agentSessionFile = join(sessionDir, `${agentKey}-${instance.index}.json`)
 
-		const args = [
-			'--mode',
-			'json',
-			'-p',
-			'--no-extensions',
-			...(contextModeExtension ? ['-e', contextModeExtension] : []),
-			'--model',
-			model,
-			'--tools',
-			tools,
-			'--thinking',
-			effort,
-			'--append-system-prompt',
-			agentState.def.systemPrompt,
-			'--session',
-			agentSessionFile,
-		]
+		const buildArgs = (modelForAttempt: string, attemptNotice = "", forceContinue = false) => {
+			const args = [
+				"--mode", "json",
+				"-p",
+				"--no-extensions",
+				...(contextModeExtension ? ["-e", contextModeExtension] : []),
+				...buildModelArgs(modelForAttempt),
+				"--tools", tools,
+				"--thinking", effort,
+				"--append-system-prompt", agentState.def.systemPrompt,
+				"--session", agentSessionFile,
+			];
 
-		if (instance.sessionFile && !compactionNote) {
-			args.push('-c')
-		}
+			if ((instance.sessionFile || forceContinue) && !compactionNote) {
+				args.push("-c");
+			}
 
-		args.push(compactionNote ? `${task}\n\nContext notice: ${compactionNote}` : task)
+			const notices = [compactionNote ? `Context notice: ${compactionNote}` : "", attemptNotice].filter(Boolean).join("\n\n");
+			args.push(notices ? `${task}\n\n${notices}` : task);
+			return args;
+		};
 
-		const preRunStatus = getGitStatusSnapshot(runCwd)
-		const textChunks: string[] = []
+		const preRunStatus = getGitStatusSnapshot(runCwd);
+		let textChunks: string[] = [];
+		let fallbackRetryNote = "";
+		let primaryDiagnostic = "";
+		let fallbackRetryStarted = false;
+		let finished = false;
 
 		return new Promise(resolve => {
 			const finish = (output: string, exitCode: number) => {
-				const compactionStartNote = compactionNote ? `\n\nSpecialist context notice before run: ${compactionNote}` : ''
-				const maxCtx = agentState.config.maxCtx ?? 100
-				const ctxNotice =
-					instance.contextPct > 100
-						? `\n\nSpecialist context notice: ${agentState.def.name} #${instance.index} used ${Math.ceil(instance.contextPct)}% of max_ctx ${maxCtx}k. Its session is marked for compaction and will be archived before reuse; continue with a concise summary or use another fresh instance.`
-						: ''
+				if (finished) return;
+				finished = true;
+				const compactionStartNote = compactionNote ? `\n\nSpecialist context notice before run: ${compactionNote}` : "";
+				const maxCtx = agentState.config.maxCtx ?? 100;
+				const ctxNotice = instance.contextPct > 100
+					? `\n\nSpecialist context notice: ${agentState.def.name} #${instance.index} used ${Math.ceil(instance.contextPct)}% of max_ctx ${maxCtx}k. Its session is marked for compaction and will be archived before reuse; continue with a concise summary or use another fresh instance.`
+					: "";
 				if (instance.contextPct > 100) {
 					instance.needsCompaction = true
 					instance.compactionNotice = ctxNotice.trim()
@@ -1198,14 +1207,6 @@ ${cleanup.message}`
 				})
 			}
 
-			const proc = spawn('pi', args, {
-				cwd: runCwd,
-				stdio: ['ignore', 'pipe', 'pipe'],
-				env: { ...process.env },
-			})
-
-			let buffer = ''
-
 			const handleAgentEvent = (event: any) => {
 				if (event.type === 'message_update') {
 					const delta = event.assistantMessageEvent
@@ -1223,13 +1224,13 @@ ${cleanup.message}`
 				} else if (event.type === 'tool_execution_start') {
 					instance.toolCount++
 					updateWidget()
-				} else if (event.type === 'message_end') {
+				} else if (event.type === "message_end") {
 					const msg = event.message
 					if (msg?.usage && maxCtxTokens > 0) {
 						updateContextPct(extractContextTokens(msg.usage))
 						updateWidget()
 					}
-				} else if (event.type === 'agent_end') {
+				} else if (event.type === "agent_end") {
 					const msgs = event.messages || []
 					const last = [...msgs].reverse().find((m: any) => m.role === 'assistant')
 					if (last?.usage && maxCtxTokens > 0) {
@@ -1239,63 +1240,101 @@ ${cleanup.message}`
 				}
 			}
 
-			proc.stdout!.setEncoding('utf-8')
-			proc.stdout!.on('data', (chunk: string) => {
-				buffer += chunk
-				const lines = buffer.split('\n')
-				buffer = lines.pop() || ''
-				for (const line of lines) {
-					if (!line.trim()) continue
-					try {
-						handleAgentEvent(JSON.parse(line))
-					} catch {}
-				}
-			})
+			const runAttempt = (modelForAttempt: string, retried: boolean) => {
+				textChunks = [];
+				let attemptDone = false;
+				let buffer = "";
+				let stdoutText = "";
+				let stderrText = "";
+				const proc = spawn("pi", buildArgs(modelForAttempt, retried ? fallbackRetryNote : "", retried && existsSync(agentSessionFile)), {
+					cwd: runCwd,
+					stdio: ["ignore", "pipe", "pipe"],
+					env: { ...process.env },
+				});
 
-			proc.stderr!.setEncoding('utf-8')
-			proc.stderr!.on('data', () => {})
+				proc.stdout!.setEncoding("utf-8");
+				proc.stdout!.on("data", (chunk: string) => {
+					stdoutText += chunk;
+					buffer += chunk;
+					const lines = buffer.split("\n");
+					buffer = lines.pop() || "";
+					for (const line of lines) {
+						if (!line.trim()) continue;
+						try {
+							handleAgentEvent(JSON.parse(line));
+						} catch {}
+					}
+				});
 
-			proc.on('close', code => {
-				if (buffer.trim()) {
-					try {
-						handleAgentEvent(JSON.parse(buffer))
-					} catch {}
-				}
+				proc.stderr!.setEncoding("utf-8");
+				proc.stderr!.on("data", (chunk: string) => {
+					stderrText += chunk;
+				});
 
-				clearInterval(instance.timer)
-				instance.elapsed = Date.now() - startTime
-				instance.status = code === 0 ? 'done' : 'error'
+				const retryWithFallback = (reason: string) => {
+					if (fallbackRetryStarted || retried || !primaryModel || !fallbackModel || primaryModel === fallbackModel) return false;
+					// Retry eligibility intentionally uses process-level failure text only; assistant output is diagnostic only.
+					if (!isModelFallbackEligibleFailure(reason)) return false;
+					fallbackRetryStarted = true;
+					primaryDiagnostic = [reason, stdoutText, textChunks.join("")].filter(Boolean).join("\n").trim().slice(0, 1200);
+					const shortReason = (reason.trim() || "model/provider failure").replace(/\s+/g, " ").slice(0, 240);
+					fallbackRetryNote = `Specialist primary model ${primaryModel} failed with a model/provider-like error (${shortReason}); retried with fallback_model ${fallbackModel}.`;
+					instance.status = "running";
+					instance.lastWork = fallbackRetryNote;
+					updateWidget();
+					runAttempt(fallbackModel, true);
+					return true;
+				};
 
-				if (code === 0) {
-					instance.sessionFile = agentSessionFile
-				}
+				proc.on("close", (code) => {
+					if (attemptDone || finished) return;
+					attemptDone = true;
+					if (buffer.trim()) {
+						try {
+							handleAgentEvent(JSON.parse(buffer));
+						} catch {}
+					}
 
-				const full = textChunks.join('')
-				instance.lastWork =
-					full
-						.split('\n')
-						.filter((l: string) => l.trim())
-						.pop() || ''
-				updateWidget()
+					if ((code ?? 1) !== 0 && retryWithFallback(stderrText || `exit ${code ?? 1}`)) return;
 
-				const ctxNote = instance.contextPct > 100 ? ` (context over ${agentState.config.maxCtx ?? 100}k)` : ''
-				ctx.ui.notify(
-					`${displayName(agentState.def.name)} #${instance.index} ${instance.status} in ${Math.round(instance.elapsed / 1000)}s${ctxNote}`,
-					instance.status === 'done' ? 'success' : 'error',
-				)
+					clearInterval(instance.timer);
+					instance.elapsed = Date.now() - startTime;
+					instance.status = code === 0 ? "done" : "error";
 
-				finish(full, code ?? 1)
-			})
+					if (code === 0) {
+						instance.sessionFile = agentSessionFile;
+					}
 
-			proc.on('error', err => {
-				clearInterval(instance.timer)
-				instance.elapsed = Date.now() - startTime
-				instance.status = 'error'
-				instance.lastWork = `Error: ${err.message}`
-				updateWidget()
-				finish(`Error spawning agent: ${err.message}`, 1)
-			})
-		})
+					const diagnosticNote = fallbackRetryNote && primaryDiagnostic ? `\n\nPrimary attempt diagnostic (truncated):\n${primaryDiagnostic}` : "";
+					const full = `${fallbackRetryNote ? `${fallbackRetryNote}${diagnosticNote}\n\n` : ""}${textChunks.join("")}`;
+					instance.lastWork = full.split("\n").filter((l: string) => l.trim()).pop() || "";
+					updateWidget();
+
+					const ctxNote = instance.contextPct > 100 ? ` (context over ${agentState.config.maxCtx ?? 100}k)` : "";
+					ctx.ui.notify(
+						`${displayName(agentState.def.name)} #${instance.index} ${instance.status} in ${Math.round(instance.elapsed / 1000)}s${ctxNote}`,
+						instance.status === "done" ? "success" : "error"
+					);
+
+					finish(full, code ?? 1);
+				});
+
+				proc.on("error", (err) => {
+					if (attemptDone || finished) return;
+					attemptDone = true;
+					if (retryWithFallback(err.message)) return;
+					clearInterval(instance.timer);
+					instance.elapsed = Date.now() - startTime;
+					instance.status = "error";
+					instance.lastWork = `Error: ${err.message}`;
+					updateWidget();
+					const diagnosticNote = fallbackRetryNote && primaryDiagnostic ? `\n\nPrimary attempt diagnostic (truncated):\n${primaryDiagnostic}` : "";
+					finish(`${fallbackRetryNote ? `${fallbackRetryNote}${diagnosticNote}\n\n` : ""}Error spawning agent: ${err.message}`, 1);
+				});
+			};
+
+			runAttempt(primaryModel || fallbackModel, false);
+		});
 	}
 
 	// ── dispatch_agent Tool (registered at top level) ──
@@ -1416,16 +1455,16 @@ ${cleanup.message}`
 
 	// ── System Prompt Override ───────────────────
 
-	pi.on('before_agent_start', async (_event, _ctx) => {
+	pi.on("before_agent_start", async (_event, _ctx) => {
 		// Recompute immediately before the final prompt so late-registered tools are available.
-		updateDispatcherAllowlist()
+		updateDispatcherAllowlist();
 
 		// Build dynamic specialist catalog from agents.yaml.
 		const agentCatalog = Array.from(agentStates.values())
 			.map(s => {
 				const baseTools = normalizeTools(s.config.tools, s.def.tools || 'read,grep,find,ls')
 				const contextTools = getContextTools(s.config.contextMode, s.config.contextTools)
-				const tools = mergeToolLists(baseTools, contextTools)
+				const tools = mergeToolLists(baseTools, contextTools);
 				const model = s.config.model || 'current Pi model'
 				const effort = s.config.effort || 'off'
 				const maxCtx = s.config.maxCtx ?? 100
@@ -1456,7 +1495,7 @@ ${cleanup.message}`
 		if (sudoExecEnabled) dispatcherTools.push('sudo_exec')
 		if (askUserQuestionEnabled) dispatcherTools.push('ask_user_question')
 		if (cwdEnabled) dispatcherTools.push('cwd')
-		dispatcherTools.push(...contextModeToolsEnabled)
+		dispatcherTools.push(...contextModeToolsEnabled);
 
 		const contextNotices =
 			recentAgentResults.length > 0
@@ -1515,7 +1554,7 @@ ${agentCatalog}${dispatcherAppendSection}`,
 
 	// ── Session Start ────────────────────────────
 
-	pi.on('session_start', async (_event, _ctx) => {
+	pi.on("session_start", async (_event, _ctx) => {
 		// Clear widgets from previous session
 		if (widgetCtx) {
 			widgetCtx.ui.setWidget('pi-agents', undefined)
@@ -1544,7 +1583,7 @@ ${agentCatalog}${dispatcherAppendSection}`,
 
 		// Lock down codebase tools, but keep selected non-codebase tools.
 		// This also enables registered context-mode tools and safely omits them when unavailable.
-		const allowedTools = updateDispatcherAllowlist()
+		const allowedTools = updateDispatcherAllowlist();
 
 		updateStatus()
 		const specialists = Array.from(agentStates.values())
@@ -1574,7 +1613,7 @@ ${agentCatalog}${dispatcherAppendSection}`,
 				const bar = '#'.repeat(filled) + '-'.repeat(10 - filled)
 
 				const left =
-					safeFg(theme, 'muted', ` ${model}`) +
+					safeFg(theme, "muted", ` ${model}`) +
 					safeFg(theme, 'muted', ' · ') +
 					safeFg(
 						theme,

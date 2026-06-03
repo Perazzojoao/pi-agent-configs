@@ -68,6 +68,18 @@ test("widget applies requested labels, tree layout, context token estimate, and 
 	assert.match(plain, /\|    ↳ .*scan files/);
 });
 
+test("widget shows primary and fallback models without conflating them", () => {
+	const lines = renderAgentsWidget([state({
+		model: "agent/primary",
+		fallbackModel: "agent/fallback",
+		instances: [{ index: 1, status: "running", task: "scan files", lastWork: "", contextPct: 10, elapsed: 1000, runCount: 1, sessionFile: null }],
+	})], 220, {}, { model: "runtime/primary", fallbackModel: "runtime/fallback", contextTokens: 0 });
+	const plain = lines.map(stripAnsi).join("\n");
+
+	assert.match(plain, /^◆ Dispatcher: 🧠 0k runtime\/primary ↪ runtime\/fallback/);
+	assert.match(plain, /• agent\/primary ↪ agent\/fallback .*● running/);
+});
+
 test("widget hides specialist thinking when off and colors status with elapsed", () => {
 	const widgetState = state({
 		name: "git-master",

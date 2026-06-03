@@ -10,6 +10,7 @@ auto_worktree:
 agents:
   - scout:
     model: github-copilot/gpt-5-mini
+    fallback_model: openai-codex/gpt-5.5
     effort: off
     tools: read,grep,find,ls
     context_mode: custom
@@ -18,6 +19,7 @@ agents:
 
   - planner:
     model: openai-codex/gpt-5.5
+    fallback_model: openai-codex/gpt-5.5
     effort: medium
     tools: read,grep,find,ls
     context_mode: custom
@@ -27,6 +29,7 @@ agents:
 
   - builder:
     model: openai-codex/gpt-5.5
+    fallback_model: openai-codex/gpt-5.5
     effort: low
     tools: read,write,edit,bash,grep,find,ls
     context_mode: custom
@@ -36,6 +39,7 @@ agents:
 
   - reviewer:
     model: openai-codex/gpt-5.5
+    fallback_model: openai-codex/gpt-5.5
     effort: off
     tools: read,bash,grep,find,ls
     context_mode: custom
@@ -45,6 +49,7 @@ agents:
 
   - qa:
     model: openai-codex/gpt-5.5
+    fallback_model: openai-codex/gpt-5.5
     effort: low
     tools: read,write,edit,bash,grep,find,ls
     context_mode: custom
@@ -54,6 +59,7 @@ agents:
 
   - documenter:
     model: openai-codex/gpt-5.5
+    fallback_model: openai-codex/gpt-5.5
     effort: off
     tools: read,write,edit,grep,find,ls
     context_mode: custom
@@ -62,6 +68,7 @@ agents:
 
   - red-team:
     model: openai-codex/gpt-5.5
+    fallback_model: openai-codex/gpt-5.5
     effort: medium
     tools: read,bash,grep,find,ls
     context_mode: custom
@@ -71,6 +78,7 @@ agents:
 
   - bowser:
     model: openai-codex/gpt-5.5
+    fallback_model: openai-codex/gpt-5.5
     effort: low
     tools: read,bash,grep,find,ls
     context_mode: custom
@@ -80,6 +88,7 @@ agents:
 
   - git-master:
     model: github-copilot/gpt-5-mini
+    fallback_model: openai-codex/gpt-5.5
     effort: high
     tools: read,bash,grep,find,ls
     context_mode: custom

@@ -59,6 +59,8 @@ function parseAgentField(config: AgentConfig, key: string, value: string | strin
 	} else if (key === "instances") {
 		const parsed = toPositiveInt(value);
 		if (parsed) config.instances = parsed;
+	} else if (key === "fallback_model") {
+		if (!Array.isArray(value)) config.fallbackModel = value;
 	} else if (key === "model" || key === "effort" || key === "tools") {
 		(config as any)[key] = value;
 	}
@@ -113,7 +115,7 @@ export function parseAgentsYamlConfig(raw: string): AgentsYamlConfig {
 			const scalarItemMatch = line.match(/^\s*-\s*([^:]+?)\s*:\s*(.+?)\s*$/);
 			if (itemMatch) { current = addAgent(itemMatch[1]); activeListField = null; continue; }
 			if (scalarItemMatch) { current = addAgent(scalarItemMatch[1]); activeListField = null; if (current) current.model = cleanYamlValue(scalarItemMatch[2]); continue; }
-			const fieldMatch = line.match(/^\s+(model|effort|tools|max_ctx|context_mode|context_tools|instances):\s*(.*?)\s*$/);
+			const fieldMatch = line.match(/^\s+(model|fallback_model|effort|tools|max_ctx|context_mode|context_tools|instances):\s*(.*?)\s*$/);
 			if (fieldMatch && current) activeListField = parseAgentField(current, fieldMatch[1], parseYamlValue(fieldMatch[2]));
 			continue;
 		}

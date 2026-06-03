@@ -65,6 +65,17 @@ test("specialist context-mode configuration affects spawn args and missing exten
 	assert.match(source, /const tools = mergeToolLists\(baseTools, contextTools\);/);
 	assert.match(source, /findContextModeExtension\(ctx\.cwd\)[\s\S]*?planDispatchIsolation\(/);
 	assert.match(source, /"--no-extensions",\s*\.\.\.\(contextModeExtension \? \["-e", contextModeExtension\] : \[\]\),/s);
+	assert.match(source, /const primaryModel = resolvePrimaryModel\(agentState\.config, ctx\);/);
+	assert.match(source, /const fallbackModel = resolveFallbackModel\(agentState\.config, ctx\);/);
+	assert.doesNotMatch(source, /--fallback-model|cliSupportsFallbackModelFlag/);
+	assert.match(source, /\.\.\.buildModelArgs\(modelForAttempt\),/);
+	assert.match(source, /isModelFallbackEligibleFailure\(reason\)/);
+	assert.match(source, /if \(attemptDone \|\| finished\) return;/);
+	assert.match(source, /if \(fallbackRetryStarted \|\| retried \|\| !primaryModel \|\| !fallbackModel \|\| primaryModel === fallbackModel\) return false;/);
+	assert.match(source, /buildArgs\(modelForAttempt, retried \? fallbackRetryNote : "", retried && existsSync\(agentSessionFile\)\)/);
+	assert.match(source, /runAttempt\(fallbackModel, true\);/);
+	assert.match(source, /Primary attempt diagnostic \(truncated\)/);
+	assert.match(source, /primary model \$\{primaryModel\} failed/);
 	assert.match(source, /context_mode is enabled for/);
 	assert.match(source, /PI_AGENTS_CONTEXT_MODE_EXTENSION/);
 });
