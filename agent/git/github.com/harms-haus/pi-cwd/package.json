@@ -56,5 +56,8 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/harms-haus/pi-cwd.git"
+  },
+  "dependencies": {
+    "typebox": "^1.1.38"
   }
 }

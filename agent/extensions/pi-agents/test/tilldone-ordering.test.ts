@@ -159,16 +159,31 @@ test("tilldone allows ordered progression from first inprogress and done to seco
 	assert.deepEqual(statuses(result), [[1, "done"], [2, "inprogress"]]);
 });
 
-test("tilldone blocks starting a later task while an earlier task is already in progress", async () => {
+test("tilldone allows starting later tasks while earlier tasks are in progress", async () => {
 	const { tool, ctx } = await setupTilldoneWithTasks();
 
 	await execute(tool, { action: "toggle", id: 1 }, ctx);
 	const result = await execute(tool, { action: "toggle", id: 2 }, ctx);
 
-	assert.match(result.content[0].text, /Cannot start task #2 while earlier task #1 is in progress/);
-	assert.match(result.content[0].text, /Mark the earlier task done first/);
-	assert.match(result.content[0].text, /remove\/update\/clear\/new-list/);
-	assert.deepEqual(statuses(result), [[1, "inprogress"], [2, "idle"]]);
+	assert.match(result.content[0].text, /Task #2: idle → inprogress/);
+	assert.deepEqual(statuses(result), [[1, "inprogress"], [2, "inprogress"]]);
+});
+
+test("tilldone blocks starting a fourth in-progress task without changing state", async () => {
+	const { tool, ctx } = await setupTilldoneWithTasks(["first", "second", "third", "fourth"]);
+
+	await execute(tool, { action: "toggle", id: 1 }, ctx);
+	await execute(tool, { action: "toggle", id: 2 }, ctx);
+	await execute(tool, { action: "toggle", id: 3 }, ctx);
+	const result = await execute(tool, { action: "toggle", id: 4 }, ctx);
+
+	assert.match(result.content[0].text, /Cannot start task #4: 3 tasks are already in progress/);
+	assert.deepEqual(statuses(result), [
+		[1, "inprogress"],
+		[2, "inprogress"],
+		[3, "inprogress"],
+		[4, "idle"],
+	]);
 });
 
 test("tilldone blocks done to idle regression when a later task is in progress", async () => {

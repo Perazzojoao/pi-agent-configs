@@ -59,6 +59,7 @@ const TillDoneParams = Type.Object({
 
 // ── Status helpers ─────────────────────────────────────────────────────
 
+const MAX_INPROGRESS_TASKS = 3
 const STATUS_ICON: Record<TaskStatus, string> = { idle: '○', inprogress: '●', done: '✓' }
 const NEXT_STATUS: Record<TaskStatus, TaskStatus> = { idle: 'inprogress', inprogress: 'done', done: 'idle' }
 const STATUS_LABEL: Record<TaskStatus, string> = { idle: 'idle', inprogress: 'in progress', done: 'done' }
@@ -195,6 +196,9 @@ export default function (pi: ExtensionAPI) {
 
 	const buildIdleRegressionError = (target: Task, laterActiveTask: Task) =>
 		`Cannot move task #${target.id} back to idle while later task #${laterActiveTask.id} is in progress. ${TILLDONE_REORDER_GUIDANCE}`
+
+	const buildMaxConcurrencyError = (target: Task) =>
+		`Cannot start task #${target.id}: ${MAX_INPROGRESS_TASKS} tasks are already in progress. Mark one active task done before starting another.`
 
 	const findIdlePredecessor = (targetIndex: number) => tasks.slice(0, targetIndex).find(t => t.status === 'idle')
 
@@ -529,12 +533,8 @@ export default function (pi: ExtensionAPI) {
 						}
 					}
 
-					const earlierActiveTask =
-						next === 'inprogress' ? tasks.slice(0, taskIndex).find(t => t.status === 'inprogress') : undefined
-					if (earlierActiveTask) {
-						const error =
-							`Cannot start task #${task.id} while earlier task #${earlierActiveTask.id} is in progress. ` +
-							`Mark the earlier task done first. ${TILLDONE_REORDER_GUIDANCE}`
+					if (next === 'inprogress' && tasks.filter(t => t.status === 'inprogress').length >= MAX_INPROGRESS_TASKS) {
+						const error = buildMaxConcurrencyError(task)
 						return {
 							content: [{ type: 'text' as const, text: `Error: ${error}` }],
 							details: makeDetails('toggle', error),
@@ -553,21 +553,7 @@ export default function (pi: ExtensionAPI) {
 
 					task.status = next
 
-					// Enforce single inprogress — demote any other active task.
-					const demoted: Task[] = []
-					if (task.status === 'inprogress') {
-						for (const t of tasks) {
-							if (t.id !== task.id && t.status === 'inprogress') {
-								t.status = 'idle'
-								demoted.push(t)
-							}
-						}
-					}
-
-					let msg = `Task #${task.id}: ${prev} → ${task.status}`
-					if (demoted.length > 0) {
-						msg += `\n(Auto-paused ${demoted.map(t => `#${t.id}`).join(', ')} → idle. Only one task can be in progress at a time.)`
-					}
+					const msg = `Task #${task.id}: ${prev} → ${task.status}`
 
 					const result = {
 						content: [

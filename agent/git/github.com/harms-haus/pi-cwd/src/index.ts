@@ -18,6 +18,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { isAbsolute, resolve } from "node:path";
 import { realpathSync, statSync } from "node:fs";
+import { Type, type Static } from "typebox";
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import { bashSingleQuote, expandTilde } from "./helpers.js";
 import { getDirectoryCompletions } from "./completions.js";
@@ -51,6 +52,23 @@ type CwdChangePayload = {
 type CwdGetPayload = {
   resolve?: (result: { cwd: string }) => void;
   callback?: (result: { cwd: string }) => void;
+};
+
+const cwdToolParameters = Type.Object({
+  path: Type.Optional(
+    Type.String({
+      description:
+        "Directory to switch to. Omit or leave empty to report the current cwd.",
+    }),
+  ),
+});
+
+type CwdToolParams = Static<typeof cwdToolParameters>;
+type CwdToolDetails = {
+  action: "get" | "set";
+  cwd: string;
+  previousCwd?: string;
+  changed: boolean;
 };
 
 function parseCwdInput(text: string): string | null {
@@ -161,10 +179,55 @@ function handleCwdCommand(
   changeCwd(pi, ctx, rawInput, true, "command");
 }
 
+function createCwdToolResult(
+  action: CwdToolDetails["action"],
+  cwd: string,
+  previousCwd?: string,
+) {
+  const changed = previousCwd !== undefined && previousCwd !== cwd;
+  return {
+    content: [
+      {
+        type: "text" as const,
+        text:
+          action === "get"
+            ? `Current working directory: ${cwd}`
+            : `Changed working directory to ${cwd}`,
+      },
+    ],
+    details: { action, cwd, previousCwd, changed } satisfies CwdToolDetails,
+  };
+}
+
 // ============================================================================
 // Extension Entry Point
 // ============================================================================
 export default function (pi: ExtensionAPI): void {
+  // ── LLM-callable cwd tool ─────────────────────────────────────────
+  pi.registerTool<typeof cwdToolParameters, CwdToolDetails>({
+    name: "cwd",
+    label: "Change CWD",
+    description:
+      "Report or change pi's effective working directory for tool execution.",
+    promptSnippet:
+      "Report or change the effective working directory for tool execution",
+    promptGuidelines: [
+      "Use cwd when you need to inspect or change the effective working directory before running file or shell tools.",
+    ],
+    parameters: cwdToolParameters,
+    async execute(_toolCallId, params: CwdToolParams, _signal, _onUpdate, ctx) {
+      const rawPath = params.path?.trim() ?? "";
+      if (!rawPath) {
+        return createCwdToolResult("get", getValidEffectiveCwd(pi, ctx));
+      }
+
+      const previousCwd = getEffectiveCwd();
+      const result = changeCwd(pi, ctx, rawPath, false, "tool");
+      if (!result.ok) throw new Error(result.error);
+      return createCwdToolResult("set", result.cwd, previousCwd);
+    },
+  });
+
   // ── /cwd command ──────────────────────────────────────────────────
   pi.registerCommand("cwd", {
     description:

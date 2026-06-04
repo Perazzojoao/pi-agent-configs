@@ -6,6 +6,7 @@ A [pi-coding-agent](https://github.com/earendil-works/pi-coding-agent) extension
 
 - `/cwd` — show current working directory
 - `/cwd <path>` — change working directory (absolute, relative, or `~` expansion)
+- LLM-callable `cwd` tool — report or change the same effective working directory from agent/dispatcher integrations
 - Intercepts `/cwd` messages in the input pipeline so they are handled locally instead of sent to the model
 - Tab-completion for directory paths
 - All tool execution (bash, read, write, edit, grep, find, ls) follows the new cwd
@@ -52,7 +53,9 @@ Copy `src/index.ts` to `~/.pi/agent/extensions/` (global) or `.pi/extensions/` (
 
 ## How it works
 
-The extension intercepts the `tool_call` event and mutates tool arguments in-place:
+The extension registers an LLM-callable `cwd` tool with the same validation, persistence, and `pi-cwd:changed` event behavior as the `/cwd` command. Calling it with no `path` reports the current effective cwd; calling it with `path` changes to that directory.
+
+The extension also intercepts the `tool_call` event and mutates tool arguments in-place:
 
 - **bash** — prepends `cd '<cwd>' &&` to the command (single-quoted for shell safety)
 - **read / write / edit** — resolves relative paths against the effective cwd
