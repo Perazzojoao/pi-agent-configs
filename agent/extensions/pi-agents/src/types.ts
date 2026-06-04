@@ -23,10 +23,30 @@ export interface AutoWorktreeConfig {
 	mergeResolutionDir: string;
 }
 
+export type DispatcherIntegrationEnabled = boolean | "auto" | "preserve_active";
+
+export interface DispatcherIntegrationConfig {
+	enabled?: DispatcherIntegrationEnabled;
+	prompt?: string;
+	invalidEnabledValue?: string;
+}
+
+export interface DispatcherConfig {
+	integrations?: Record<string, DispatcherIntegrationConfig>;
+}
+
 export interface AgentsYamlConfig {
 	runtime: RuntimeConfig;
 	autoWorktree: AutoWorktreeConfig;
+	dispatcher?: DispatcherConfig;
 	agents: AgentConfig[];
+	warnings: string[];
+}
+
+export interface ResolvedDispatcherIntegrations {
+	tools: string[];
+	enabledIntegrations: string[];
+	promptSections: string[];
 	warnings: string[];
 }
 
