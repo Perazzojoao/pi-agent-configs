@@ -300,6 +300,7 @@ export default function (pi: ExtensionAPI) {
 	let agentConfigs: AgentConfig[] = [];
 	let agentsConfigPath = "";
 	let maxParallelDispatches = DEFAULT_MAX_PARALLEL_DISPATCHES;
+	let runtimeFallbackModel: string | undefined;
 	let autoWorktreeConfig: AutoWorktreeConfig | undefined;
 	let widgetCtx: any;
 	let sessionDir = "";
@@ -311,6 +312,7 @@ export default function (pi: ExtensionAPI) {
 
 	function loadAgents(cwd: string, ctx: any) {
 		maxParallelDispatches = DEFAULT_MAX_PARALLEL_DISPATCHES;
+		runtimeFallbackModel = undefined;
 		autoWorktreeConfig = undefined;
 		runtimeConfigWarnings = [];
 		sessionDir = join(cwd, ".pi", "agent-sessions");
@@ -331,6 +333,7 @@ export default function (pi: ExtensionAPI) {
 				const parsedConfig = parseAgentsYamlConfig(readFileSync(agentsConfigPath, "utf-8"));
 				agentConfigs = parsedConfig.agents;
 				maxParallelDispatches = parsedConfig.runtime.maxParallelAgents;
+				runtimeFallbackModel = parsedConfig.runtime.fallbackModel;
 				sessionDir = resolveSafeSessionDir(cwd, parsedConfig.runtime.sessionsDir, runtimeConfigWarnings);
 				autoWorktreeConfig = parsedConfig.autoWorktree;
 			} catch {
@@ -351,6 +354,10 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		activateAgents();
+	}
+
+	function getModelResolutionContext(ctx: any): any {
+		return runtimeFallbackModel ? { ...ctx, piAgentsRuntimeFallbackModel: runtimeFallbackModel } : ctx;
 	}
 
 	function createAgentInstanceState(def: AgentDef, index: number): AgentInstanceState {
@@ -438,11 +445,12 @@ export default function (pi: ExtensionAPI) {
 		widgetCtx.ui.setWidget("pi-agents", (_tui: any, theme: any) => ({
 			render(width: number): string[] {
 				if (width <= 0) return [""];
+				const modelCtx = getModelResolutionContext(widgetCtx);
 				const dispatcherModel = getRuntimeModel(widgetCtx) || "current Pi model";
 				const usage = typeof widgetCtx.getContextUsage === "function" ? widgetCtx.getContextUsage() : undefined;
 				const dispatcher: DispatcherWidgetState = {
 					model: dispatcherModel,
-					fallbackModel: getFallbackModelLabel({}, widgetCtx),
+					fallbackModel: getFallbackModelLabel({}, modelCtx),
 					contextTokens: usage?.tokens ?? 0,
 					thinking: typeof pi.getThinkingLevel === "function" ? pi.getThinkingLevel() : "",
 				};
@@ -454,8 +462,8 @@ export default function (pi: ExtensionAPI) {
 				const states: AgentWidgetState[] = Array.from(agentStates.values()).map(state => ({
 					name: state.def.name,
 					description: state.def.description,
-					model: state.config.model || getRuntimeModel(widgetCtx) || getFallbackModelLabel(state.config, widgetCtx),
-					fallbackModel: getFallbackModelLabel(state.config, widgetCtx),
+					model: state.config.model || getRuntimeModel(widgetCtx) || getFallbackModelLabel(state.config, modelCtx),
+					fallbackModel: getFallbackModelLabel(state.config, modelCtx),
 					thinking: state.config.effort || "",
 					maxCtx: state.config.maxCtx ?? 100,
 					instances: state.instances,
@@ -999,8 +1007,9 @@ ${cleanup.message}`;
 			updateWidget();
 		}, 1000);
 
-		const primaryModel = resolvePrimaryModel(agentState.config, ctx);
-		const fallbackModel = resolveFallbackModel(agentState.config, ctx);
+		const modelCtx = getModelResolutionContext(ctx);
+		const primaryModel = resolvePrimaryModel(agentState.config, modelCtx);
+		const fallbackModel = resolveFallbackModel(agentState.config, modelCtx);
 		const effort = agentState.config.effort || "off";
 		const maxCtxTokens = (agentState.config.maxCtx ?? 100) * 1000;
 		const updateContextPct = (contextTokens: number) => {

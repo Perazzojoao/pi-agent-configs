@@ -12,8 +12,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 test("parses real agent/agents/agents.yaml explicit defaults", () => {
 	const yamlPath = resolve(__dirname, "../../../agents/agents.yaml");
-	const configs = parseAgentsYaml(readFileSync(yamlPath, "utf-8"));
+	const raw = readFileSync(yamlPath, "utf-8");
+	const parsedConfig = parseAgentsYamlConfig(raw);
+	const configs = parseAgentsYaml(raw);
 	const byName = new Map(configs.map(config => [config.name, config]));
+
+	assert.equal(parsedConfig.runtime.fallbackModel, "openai-codex/gpt-5.5");
 
 	assert.ok(byName.get("scout")?.model, "scout model is configured");
 	assert.equal(byName.get("scout")?.maxCtx, 150);
@@ -124,6 +128,7 @@ test("parseAgentsYamlConfig supports runtime, auto worktree, and per-agent insta
 runtime:
   max_parallel_agents: 5
   sessions_dir: .pi/custom-sessions
+  fallback_model: runtime/fallback
 auto_worktree:
   base_dir: ../custom-worktrees
   merge_resolution_dir: resolve
@@ -136,6 +141,7 @@ agents:
 
 	assert.equal(config.runtime.maxParallelAgents, 5);
 	assert.equal(config.runtime.sessionsDir, ".pi/custom-sessions");
+	assert.equal(config.runtime.fallbackModel, "runtime/fallback");
 	assert.equal(config.autoWorktree.baseDir, "../custom-worktrees");
 	assert.equal(config.autoWorktree.mergeResolutionDir, "resolve");
 	assert.equal(config.agents[0].instances, 4);
@@ -148,6 +154,7 @@ test("parseAgentsYamlConfig defaults match existing runtime behavior", () => {
 
 	assert.equal(config.runtime.maxParallelAgents, 3);
 	assert.equal(config.runtime.sessionsDir, ".pi/agent-sessions");
+	assert.equal(config.runtime.fallbackModel, undefined);
 	assert.equal(config.autoWorktree.baseDir, "../worktrees");
 	assert.equal(config.autoWorktree.mergeResolutionDir, "merge-resolution");
 });

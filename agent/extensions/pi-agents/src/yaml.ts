@@ -120,13 +120,14 @@ export function parseAgentsYamlConfig(raw: string): AgentsYamlConfig {
 			continue;
 		}
 
-		const fieldMatch = line.match(/^\s+(max_parallel_agents|sessions_dir|base_dir|merge_resolution_dir):\s*(.*?)\s*$/);
+		const fieldMatch = line.match(/^\s+(max_parallel_agents|sessions_dir|fallback_model|base_dir|merge_resolution_dir):\s*(.*?)\s*$/);
 		if (!fieldMatch) continue;
 		const [, key, rawValue] = fieldMatch;
 		const value = parseYamlValue(rawValue);
 		if (section === "runtime") {
 			if (key === "max_parallel_agents") config.runtime.maxParallelAgents = toPositiveInt(value) || config.runtime.maxParallelAgents;
 			if (key === "sessions_dir" && !Array.isArray(value) && value) config.runtime.sessionsDir = String(value);
+			if (key === "fallback_model" && !Array.isArray(value) && value) config.runtime.fallbackModel = String(value);
 		} else if (section === "auto_worktree") {
 			if (!Array.isArray(value) && value) {
 				if (key === "base_dir") config.autoWorktree.baseDir = String(value);
