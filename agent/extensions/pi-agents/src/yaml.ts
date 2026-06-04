@@ -1,5 +1,5 @@
 import { CONTEXT_MODE_TOOL_NAMES, normalizeContextMode } from "./context-mode";
-import type { AgentConfig, AgentsYamlConfig } from "./types";
+import type { AgentConfig, AgentsYamlConfig, DispatcherConfig, DispatcherIntegrationConfig } from "./types";
 
 export function cleanYamlValue(value: string): string {
 	return value.trim().replace(/^["']|["']$/g, "");
@@ -38,6 +38,91 @@ function toPositiveInt(value: unknown): number | undefined {
 	return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+function parseIndentedBlock(lines: string[], startIndex: number, fieldIndent: number): { value: string; nextIndex: number } {
+	const blockLines: string[] = [];
+	let minIndent: number | undefined;
+	let i = startIndex;
+	for (; i < lines.length; i++) {
+		const line = lines[i];
+		if (!line.trim()) {
+			blockLines.push("");
+			continue;
+		}
+		const indent = line.match(/^\s*/)?.[0].length ?? 0;
+		if (indent <= fieldIndent) break;
+		if (minIndent === undefined || indent < minIndent) minIndent = indent;
+		blockLines.push(line);
+	}
+	const strip = minIndent ?? fieldIndent + 2;
+	return {
+		value: blockLines.map(line => line.trim() ? line.slice(Math.min(strip, line.length)) : "").join("\n").replace(/\n+$/, ""),
+		nextIndex: i,
+	};
+}
+
+function parseDispatcherConfig(raw: string, warnings: string[]): DispatcherConfig | undefined {
+	const lines = raw.split("\n");
+	const integrations: Record<string, DispatcherIntegrationConfig> = {};
+	let inDispatcher = false;
+	let inIntegrations = false;
+	let currentName: string | null = null;
+
+	for (let i = 0; i < lines.length; i++) {
+		const rawLine = lines[i];
+		const trimmed = rawLine.trim();
+		if (!trimmed || trimmed.startsWith("#")) continue;
+		const indent = rawLine.match(/^\s*/)?.[0].length ?? 0;
+
+		if (indent === 0) {
+			inDispatcher = /^dispatcher:\s*(?:#.*)?$/.test(trimmed);
+			inIntegrations = false;
+			currentName = null;
+			continue;
+		}
+		if (!inDispatcher) continue;
+		if (indent === 2) {
+			inIntegrations = /^integrations:\s*(?:#.*)?$/.test(trimmed);
+			currentName = null;
+			continue;
+		}
+		if (!inIntegrations) continue;
+		if (indent === 4) {
+			const match = trimmed.match(/^([^:#]+):\s*(?:#.*)?$/);
+			if (!match) continue;
+			currentName = cleanYamlValue(match[1]);
+			if (!currentName) continue;
+			integrations[currentName] ||= {};
+			continue;
+		}
+		if (indent >= 6 && currentName) {
+			const match = rawLine.match(/^\s+(enabled|prompt):\s*(.*?)\s*$/);
+			if (!match) continue;
+			const [, key, rawValue] = match;
+			if (key === "enabled") {
+				const value = cleanYamlValue(rawValue.replace(/#.*$/, ""));
+				if (value === "true") integrations[currentName].enabled = true;
+				else if (value === "false") integrations[currentName].enabled = false;
+				else if (value === "auto" || value === "preserve_active") integrations[currentName].enabled = value;
+				else {
+					integrations[currentName].invalidEnabledValue = value;
+					warnings.push(`Invalid dispatcher.integrations.${currentName}.enabled value "${value}" ignored; integration disabled.`);
+				}
+			} else if (key === "prompt") {
+				const value = rawValue.trim();
+				if (value === "|" || value === ">") {
+					const block = parseIndentedBlock(lines, i + 1, indent);
+					integrations[currentName].prompt = value === ">" ? block.value.replace(/\n+/g, " ") : block.value;
+					i = block.nextIndex - 1;
+				} else if (value) {
+					integrations[currentName].prompt = cleanYamlValue(value.replace(/#.*$/, ""));
+				}
+			}
+		}
+	}
+
+	return Object.keys(integrations).length > 0 ? { integrations } : undefined;
+}
+
 function parseAgentField(config: AgentConfig, key: string, value: string | string[]): ListField | null {
 	if (key === "tools" && !value) {
 		config.tools = [];
@@ -74,6 +159,7 @@ export function parseAgentsYamlConfig(raw: string): AgentsYamlConfig {
 		agents: [],
 		warnings: [],
 	};
+	config.dispatcher = parseDispatcherConfig(raw, config.warnings);
 	const seen = new Set<string>();
 	let section = "";
 	let current: AgentConfig | null = null;

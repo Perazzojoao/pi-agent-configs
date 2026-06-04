@@ -128,7 +128,7 @@ Se nenhum `agents.yaml` existir, ou se o arquivo existir mas não produzir nenhu
 
 ## Schema de `agents.yaml`
 
-O parser espera um objeto no topo. `agents` contém a lista de especialistas; `runtime` e `auto_worktree` são opcionais e preservam o comportamento anterior quando omitidos. Cada item de `agents` pode ser um nome simples, um nome com campos, ou um nome cujo valor escalar é tratado como `model`.
+O parser espera um objeto no topo. `agents` contém a lista de especialistas; `runtime`, `auto_worktree` e `dispatcher` são opcionais e preservam o comportamento anterior quando omitidos. Cada item de `agents` pode ser um nome simples, um nome com campos, ou um nome cujo valor escalar é tratado como `model`.
 
 Schema lógico:
 
@@ -141,6 +141,13 @@ runtime:
 auto_worktree:
   base_dir: ../worktrees
   merge_resolution_dir: merge-resolution
+
+dispatcher:
+  integrations:
+    extension_name:
+      enabled: auto # true | false | auto | preserve_active
+      prompt: |
+        Instructions for the dispatcher.
 
 agents:
   - <name>:
@@ -170,6 +177,9 @@ Campos e valores padrão atuais:
 - `runtime.fallback_model` — fallback global lido de `agents.yaml` e usado por todos os agentes que não definem `fallback_model` individual. Precedência efetiva do fallback: `agent.fallback_model` > `runtime.fallback_model` > `ctx.fallback_model`/`ctx.fallbackModel` > default dinâmico de `<ctx.agentDir>/settings.json` > fallback seguro final `openai-codex/gpt-5.5`.
 - `auto_worktree.base_dir` — diretório base das worktrees automáticas, relativo ao checkout base quando não absoluto. Default: `../worktrees`.
 - `auto_worktree.merge_resolution_dir` — subdiretório de resolução de merge dentro de `auto_worktree.base_dir`, ou caminho absoluto. Default: `merge-resolution`.
+- `dispatcher.integrations` — optional dispatcher tool integrations, keyed by registered tool/extension tool name. Each integration accepts `enabled` and `prompt`.
+- `dispatcher.integrations.<name>.enabled` — access policy for the dispatcher integration: `true` enables the tool when it is registered and safe; `false` disables both the tool and prompt; `auto` enables the tool when it is registered and safe; `preserve_active` keeps it only if it was already active before the dispatcher restricted tools.
+- `dispatcher.integrations.<name>.prompt` — optional instructions appended to the dispatcher prompt only when that integration is enabled after resolution. For custom integrations, prompt text alone does not grant access; set `enabled` explicitly.
 
 Quando `context_mode` é diferente de `off`, a extensão mescla as tools `ctx_*` do perfil às tools do especialista e inicia o subprocesso `pi` com `--no-extensions` mais a extensão context-mode carregada explicitamente. O caminho pode ser definido por `PI_AGENTS_CONTEXT_MODE_EXTENSION`; sem override, a extensão procura instalações em `agent/npm/node_modules/context-mode/build/adapters/pi/extension.js`, `node_modules/context-mode/...` e locais globais equivalentes. Se context-mode estiver habilitado para um especialista mas a extensão não for encontrada, o dispatch retorna erro claro em vez de prosseguir silenciosamente.
 
@@ -341,15 +351,41 @@ agents:
 
 ## Dispatcher e restrição de tools
 
-No evento `session_start`, a extensão substitui as tools ativas do agente principal por uma lista mínima:
+No evento `session_start`, a extensão substitui as tools ativas do agente principal por uma lista mínima resolvida a partir de defaults seguros e de `dispatcher.integrations`:
 
 - `dispatch_agent` sempre fica ativa;
-- `tilldone` é preservada se já estiver ativa;
-- `sudo_exec` é preservada se já estiver ativa;
-- `ask_user_question` é preservada/ativada se existir, apenas para esclarecimentos ao usuário;
-- `cwd` é preservada/ativada se existir, apenas para consultar ou alterar diretório.
+- `tilldone` é preservada por default se já estiver ativa;
+- `sudo_exec` é preservada por default se já estiver ativa;
+- `ask_user_question` é ativada por default se existir, apenas para esclarecimentos ao usuário;
+- `cwd` é ativada por default se existir, apenas para consultar ou alterar diretório;
+- tools seguras de context-mode continuam disponíveis quando registradas, preservando o comportamento anterior, exceto quando uma entrada em `dispatcher.integrations` controla explicitamente a mesma tool.
 
 O dispatcher não deve ler, escrever, buscar nem executar código diretamente. Ele deve decompor o pedido do usuário e delegar trabalho aos especialistas com `dispatch_agent`.
+
+### Dispatcher integrations
+
+`dispatcher.integrations` lets `agents.yaml` grant limited dispatcher access to registered extension tools and add matching prompt instructions:
+
+```yaml
+dispatcher:
+  integrations:
+    extension_name:
+      enabled: auto # true | false | auto | preserve_active
+      prompt: |
+        Instructions for the dispatcher.
+```
+
+Semantics:
+
+- `enabled: true` grants the integration only when a tool with the same name is registered and passes safety filters.
+- `enabled: false` disables the integration and suppresses its prompt section.
+- `enabled: auto` grants the integration when it is registered and safe.
+- `enabled: preserve_active` grants the integration only when it was already active before `pi-agents` restricted the dispatcher tool list.
+- For custom integrations, `prompt` text alone does not grant tool access; custom integrations need explicit `enabled`.
+- Access is resolved only when the tool exists/registered and passes safety filters.
+- Unsafe direct codebase tools cannot be granted: `read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`.
+- Dangerous context-mode tools are denied even if configured, including `ctx_purge` and `ctx_upgrade`.
+- When `dispatcher` is omitted, the extension keeps its backward-compatible defaults: `dispatch_agent` is active, the built-in safe integrations above are resolved as before, and safe registered context-mode tools remain available.
 
 Cada especialista é executado em um subprocesso. A extensão sempre passa o modelo da tentativa atual com `--model`; ela não depende de um argumento `--fallback-model` do Pi CLI:
 

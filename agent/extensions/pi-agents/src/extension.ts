@@ -32,6 +32,7 @@ import {
 	normalizeTools,
 	parseAgentsYamlConfig,
 	parseGitStatusZ,
+	resolveDispatcherIntegrations,
 	buildModelArgs,
 	getFallbackModelLabel,
 	isModelFallbackEligibleFailure,
@@ -46,6 +47,7 @@ import {
 	validateSameGitCommonDir,
 	type AgentConfig,
 	type AutoWorktreeConfig,
+	type DispatcherConfig,
 	type DispatchMode,
 	type GitStatusSnapshot,
 } from "./core";
@@ -335,6 +337,10 @@ export default function (pi: ExtensionAPI) {
 	let autoWorktreeConfig: AutoWorktreeConfig | undefined;
 	let widgetCtx: any;
 	let sessionDir = "";
+	let dispatcherConfig: DispatcherConfig | undefined;
+	let dispatcherConfigWarnings: string[] = [];
+	let dispatcherToolsEnabled: string[] = ["dispatch_agent"];
+	let dispatcherPromptSections: string[] = [];
 	let tilldoneEnabled = false;
 	let sudoExecEnabled = false;
 	let askUserQuestionEnabled = false;
@@ -346,6 +352,8 @@ export default function (pi: ExtensionAPI) {
 		runtimeFallbackModel = undefined;
 		autoWorktreeConfig = undefined;
 		runtimeConfigWarnings = [];
+		dispatcherConfigWarnings = [];
+		dispatcherConfig = undefined;
 		sessionDir = join(cwd, ".pi", "agent-sessions");
 
 		const globalAgentsDir = ctx?.agentDir
@@ -363,6 +371,8 @@ export default function (pi: ExtensionAPI) {
 			try {
 				const parsedConfig = parseAgentsYamlConfig(readFileSync(agentsConfigPath, "utf-8"));
 				agentConfigs = parsedConfig.agents;
+				dispatcherConfig = parsedConfig.dispatcher;
+				dispatcherConfigWarnings = parsedConfig.warnings;
 				maxParallelDispatches = parsedConfig.runtime.maxParallelAgents;
 				runtimeFallbackModel = parsedConfig.runtime.fallbackModel;
 				sessionDir = resolveSafeSessionDir(cwd, parsedConfig.runtime.sessionsDir, runtimeConfigWarnings);
@@ -443,18 +453,20 @@ export default function (pi: ExtensionAPI) {
 	function updateDispatcherAllowlist(): string[] {
 		const currentlyActive = pi.getActiveTools();
 		const allToolNames = pi.getAllTools().map(t => t.name);
-		tilldoneEnabled = currentlyActive.includes("tilldone");
-		sudoExecEnabled = currentlyActive.includes("sudo_exec");
-		askUserQuestionEnabled = currentlyActive.includes("ask_user_question") || allToolNames.includes("ask_user_question");
-		cwdEnabled = currentlyActive.includes("cwd") || allToolNames.includes("cwd");
-		contextModeToolsEnabled = CONTEXT_MODE_TOOL_NAMES.filter(name => allToolNames.includes(name));
+		const resolved = resolveDispatcherIntegrations(dispatcherConfig, allToolNames, currentlyActive);
 
-		const allowedTools = ["dispatch_agent"];
-		if (tilldoneEnabled) allowedTools.push("tilldone");
-		if (sudoExecEnabled) allowedTools.push("sudo_exec");
-		if (askUserQuestionEnabled) allowedTools.push("ask_user_question");
-		if (cwdEnabled) allowedTools.push("cwd");
+		dispatcherPromptSections = resolved.promptSections;
+		tilldoneEnabled = resolved.tools.includes("tilldone");
+		sudoExecEnabled = resolved.tools.includes("sudo_exec");
+		askUserQuestionEnabled = resolved.tools.includes("ask_user_question");
+		cwdEnabled = resolved.tools.includes("cwd");
+		contextModeToolsEnabled = CONTEXT_MODE_TOOL_NAMES.filter(name => allToolNames.includes(name));
+		contextModeToolsEnabled = contextModeToolsEnabled.filter(name => resolved.tools.includes(name));
+		dispatcherConfigWarnings = Array.from(new Set([...dispatcherConfigWarnings, ...resolved.warnings]));
+
+		const allowedTools = resolved.tools.filter(tool => !CONTEXT_MODE_TOOL_NAMES.includes(tool));
 		allowedTools.push(...contextModeToolsEnabled);
+		dispatcherToolsEnabled = allowedTools;
 		pi.setActiveTools(allowedTools);
 		return allowedTools;
 	}
@@ -1418,33 +1430,16 @@ ${cleanup.message}`;
 			})
 			.join("\n\n");
 
-		const tilldoneSection = tilldoneEnabled
-			? `\n## TillDone (Planner-driven planning tracking only)\n- tilldone is available only for Planner-driven planning tracking.\n- The dispatcher must only use tilldone to create/update/track task lists that represent a plan produced or requested by the Planner.\n- Do not use tilldone for generic task management, implementation, review, documentation, debugging, or user-requested tracking unless it is tied to a Planner plan.\n- When the Planner asks the dispatcher to create/update tilldone for its plan, the dispatcher should do so before continuing delegation.\n- Implementation still goes through dispatch_agent.\n`
+		const dispatcherIntegrationSections = dispatcherPromptSections.length > 0
+			? `\n${dispatcherPromptSections.join("\n\n")}\n`
 			: "";
-
-		const sudoExecSection = sudoExecEnabled
-			? `\n## Privileged Commands (sudo_exec)\n- The sudo_exec tool is enabled for commands that require elevated privileges.\n- This is the only exception to the no-direct-execution rule: use sudo_exec for privileged operations, passing the command without the sudo prefix.\n- Do not use sudo_exec for normal codebase exploration or implementation work; delegate that work via dispatch_agent.\n`
-			: "";
-
-		const askUserQuestionSection = askUserQuestionEnabled
-			? `\n## Planner Clarification Flow (ask_user_question)\n- When the Planner agent is available and used, it should formulate implementation questions for the user when answers would help produce a more precise and complete plan.\n- Planner has autonomy to decide when to propose questions, unless the user's request explicitly says otherwise.\n- Planner must NOT try to ask the user directly; it must return the proposed questions to you, the dispatcher.\n- Review, filter, consolidate, and rephrase Planner's proposed questions before asking the user.\n- Ask only concise, relevant, and safe questions with ask_user_question. Never ask for secrets, credentials, or unrelated sensitive information.\n- After receiving answers, pass the relevant answers back to Planner so it can complete or refine the plan.\n- ask_user_question does not provide codebase access; continue to delegate all code exploration and implementation work via dispatch_agent.\n`
-			: "";
-
-		const cwdSection = cwdEnabled
-			? `\n## Current Directory (cwd)\n- The cwd tool is a limited exception only for checking or changing the current working directory according to the tool semantics.\n- cwd does not allow reading, writing, searching, or executing directly in the codebase; continue to delegate code exploration and implementation work via dispatch_agent.\n`
-			: "";
-
-		const dispatcherTools = ["dispatch_agent"];
-		if (tilldoneEnabled) dispatcherTools.push("tilldone");
-		if (sudoExecEnabled) dispatcherTools.push("sudo_exec");
-		if (askUserQuestionEnabled) dispatcherTools.push("ask_user_question");
-		if (cwdEnabled) dispatcherTools.push("cwd");
+		const dispatcherTools = dispatcherToolsEnabled.filter(tool => !CONTEXT_MODE_TOOL_NAMES.includes(tool));
 		dispatcherTools.push(...contextModeToolsEnabled);
 
 		const contextNotices = recentAgentResults.length > 0
 			? `\n## Specialist context notices\n${recentAgentResults.map(n => `- ${n.agent} #${n.instance}: ${n.message}`).join("\n")}\n`
 			: "";
-		const allConfigWarnings = [...runtimeConfigWarnings, ...missingAgentWarnings];
+		const allConfigWarnings = [...runtimeConfigWarnings, ...dispatcherConfigWarnings, ...missingAgentWarnings];
 		const configWarnings = allConfigWarnings.length > 0
 			? `\n## Specialist configuration warnings\n${allConfigWarnings.map(w => `- ${w}`).join("\n")}\n`
 			: "";
@@ -1477,7 +1472,7 @@ ${contextModeToolsEnabled.length > 0 ? "- Before dispatching agents to reread fi
 - Review results and dispatch follow-up agents if needed
 - If a task fails, try a different agent or adjust the task description
 - Summarize the outcome for the user
-${tilldoneSection}${sudoExecSection}${askUserQuestionSection}${cwdSection}
+${dispatcherIntegrationSections}
 ## Rules
 - NEVER try to read, write, or execute code directly — you have no such tools, except sudo_exec when enabled for privileged commands and cwd when enabled only to check or change the current directory
 - ALWAYS use dispatch_agent for implementation work
@@ -1513,7 +1508,7 @@ ${agentCatalog}${dispatcherAppendSection}`,
 		_ctx.ui.notify(
 			`Specialists: ${specialists}\n` +
 			`Specialists loaded from: ${agentsConfigPath || "discovered agent definitions"}\n` +
-			(runtimeConfigWarnings.length + missingAgentWarnings.length > 0 ? `Warnings:\n${[...runtimeConfigWarnings, ...missingAgentWarnings].join("\n")}\n` : "") +
+			(runtimeConfigWarnings.length + dispatcherConfigWarnings.length + missingAgentWarnings.length > 0 ? `Warnings:\n${[...runtimeConfigWarnings, ...dispatcherConfigWarnings, ...missingAgentWarnings].join("\n")}\n` : "") +
 			`Active tools: ${allowedTools.join(", ")}`,
 			"info",
 		);

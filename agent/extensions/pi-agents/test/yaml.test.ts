@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 import { findContextModeExtension, getContextTools, mergeToolLists, normalizeContextMode } from "../src/context-mode";
+import { resolveDispatcherIntegrations } from "../src/dispatcher-config";
 import { cleanYamlValue, normalizeTools, parseAgentsYaml, parseAgentsYamlConfig, parseYamlValue } from "../src/yaml";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -147,6 +148,78 @@ agents:
 	assert.equal(config.agents[0].instances, 4);
 	assert.equal(config.agents[1].effort, "high");
 	assert.equal(config.agents[1].instances, undefined);
+});
+
+test("parseAgentsYamlConfig supports dispatcher integrations with block prompt", () => {
+	const config = parseAgentsYamlConfig(`
+dispatcher:
+  integrations:
+    ask_user_question:
+      enabled: auto
+      prompt: |
+        ## Questions
+        Ask concise questions.
+    read:
+      enabled: true
+      prompt: |
+        Must not grant access.
+agents:
+  - scout
+`);
+
+	assert.equal(config.dispatcher?.integrations?.ask_user_question.enabled, "auto");
+	assert.equal(config.dispatcher?.integrations?.ask_user_question.prompt, "## Questions\nAsk concise questions.");
+	const resolved = resolveDispatcherIntegrations(config.dispatcher, ["dispatch_agent", "ask_user_question", "read"], []);
+	assert.ok(resolved.tools.includes("ask_user_question"));
+	assert.ok(!resolved.tools.includes("read"));
+	assert.ok(resolved.promptSections.some(section => section.includes("Ask concise questions.")));
+	assert.ok(!resolved.promptSections.some(section => section.includes("Must not grant access.")));
+});
+
+test("dispatcher prompt-only custom integrations and invalid enabled values do not grant access", () => {
+	const config = parseAgentsYamlConfig(`
+dispatcher:
+  integrations:
+    some_registered_tool:
+      prompt: "Prompt alone is not access."
+    invalid_tool:
+      enabled: maybe
+      prompt: "Invalid enabled is disabled."
+agents:
+  - scout
+`);
+	const resolved = resolveDispatcherIntegrations(config.dispatcher, ["some_registered_tool", "invalid_tool"], []);
+
+	assert.ok(!resolved.tools.includes("some_registered_tool"));
+	assert.ok(!resolved.tools.includes("invalid_tool"));
+	assert.ok(!resolved.promptSections.some(section => section.includes("Prompt alone")));
+	assert.ok(!resolved.promptSections.some(section => section.includes("Invalid enabled")));
+	assert.ok(config.warnings.some(warning => warning.includes("invalid_tool") && warning.includes("disabled")));
+	assert.ok(resolved.warnings.some(warning => warning.includes("some_registered_tool") && warning.includes("prompt text alone")));
+});
+
+test("dispatcher filters dangerous context tools from explicit and implicit allowlists", () => {
+	const explicit = parseAgentsYamlConfig(`
+dispatcher:
+  integrations:
+    ctx_purge:
+      enabled: true
+      prompt: "Purge all context."
+    ctx_upgrade:
+      enabled: true
+      prompt: "Upgrade context-mode."
+agents:
+  - scout
+`);
+	const explicitResolved = resolveDispatcherIntegrations(explicit.dispatcher, ["ctx_purge", "ctx_upgrade"], []);
+	assert.ok(!explicitResolved.tools.includes("ctx_purge"));
+	assert.ok(!explicitResolved.tools.includes("ctx_upgrade"));
+	assert.ok(!explicitResolved.promptSections.some(section => section.includes("Purge all context")));
+
+	const implicitResolved = resolveDispatcherIntegrations(undefined, ["ctx_search", "ctx_purge", "ctx_upgrade"], []);
+	assert.ok(implicitResolved.tools.includes("ctx_search"));
+	assert.ok(!implicitResolved.tools.includes("ctx_purge"));
+	assert.ok(!implicitResolved.tools.includes("ctx_upgrade"));
 });
 
 test("parseAgentsYamlConfig defaults match existing runtime behavior", () => {
