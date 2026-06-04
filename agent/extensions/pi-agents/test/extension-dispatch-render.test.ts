@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -56,6 +56,25 @@ function renderLines(renderable: any, width = 80): string[] {
 	return renderable.render(width);
 }
 
+function installFakePi(binDir: string, scriptBody: string) {
+	const piPath = join(binDir, "pi");
+	writeFileSync(piPath, `#!/usr/bin/env node\n${scriptBody}`);
+	chmodSync(piPath, 0o755);
+}
+
+async function withFakePi<T>(scriptBody: string, run: () => Promise<T>): Promise<T> {
+	const binDir = mkdtempSync(join(tmpdir(), "pi-agents-fake-pi-bin-"));
+	const originalPath = process.env.PATH;
+	try {
+		installFakePi(binDir, scriptBody);
+		process.env.PATH = `${binDir}:${originalPath || ""}`;
+		return await run();
+	} finally {
+		process.env.PATH = originalPath;
+		rmSync(binDir, { recursive: true, force: true });
+	}
+}
+
 test("dispatch_agent renderCall and renderResult cover partial, compact, expanded, fallback, and truncation branches", async () => {
 	const extension = await loadExtension();
 	const stub = createPiStub();
@@ -99,6 +118,99 @@ test("dispatch_agent rejects unknown agents, undeclared writes, and unsafe paths
 	} finally {
 		rmSync(cwd, { recursive: true, force: true });
 	}
+});
+
+test("dispatch_agent treats exit 0 with no assistant output as an error", async () => {
+	await withFakePi("process.exit(0);\n", async () => {
+		const extension = await loadExtension();
+		const cwd = mkdtempSync(join(tmpdir(), "pi-agents-empty-success-"));
+		try {
+			writeAgentProject(cwd, "agents:\n  - scout:\n    model: fake/primary\n");
+			execFileSync("git", ["init"], { cwd, stdio: "ignore" });
+			const stub = createPiStub();
+			extension(stub.pi);
+			await stub.startSession(cwd);
+			const tool = stub.getDispatchTool();
+			const ctx = { cwd, ui: { notify() {} }, model: { provider: "runtime", id: "model" } };
+
+			const result: any = await tool.execute("call", { agent: "scout", task: "x" }, undefined, undefined, ctx);
+
+			assert.equal(result.details.status, "error");
+			assert.equal(result.details.exitCode, 1);
+			assert.match(result.content[0].text, /produced no meaningful assistant output/);
+		} finally {
+			rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+});
+
+test("dispatch_agent retries fallback after empty primary exit 0 and succeeds", async () => {
+	await withFakePi(`
+const args = process.argv.slice(2);
+const model = args[args.indexOf('--model') + 1];
+if (model === 'fake/primary') process.exit(0);
+console.log(JSON.stringify({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'fallback handled empty primary' } }));
+process.exit(0);
+`, async () => {
+		const extension = await loadExtension();
+		const cwd = mkdtempSync(join(tmpdir(), "pi-agents-empty-fallback-"));
+		try {
+			writeAgentProject(cwd, "agents:\n  - scout:\n    model: fake/primary\n    fallback_model: fake/fallback\n");
+			execFileSync("git", ["init"], { cwd, stdio: "ignore" });
+			const stub = createPiStub();
+			extension(stub.pi);
+			await stub.startSession(cwd);
+			const tool = stub.getDispatchTool();
+			const ctx = { cwd, ui: { notify() {} }, model: { provider: "runtime", id: "model" } };
+
+			const result: any = await tool.execute("call", { agent: "scout", task: "x" }, undefined, undefined, ctx);
+
+			assert.equal(result.details.status, "done");
+			assert.equal(result.details.exitCode, 0);
+			assert.match(result.content[0].text, /produced no meaningful assistant output/);
+			assert.match(result.content[0].text, /retried with fallback_model fake\/fallback/);
+			assert.match(result.content[0].text, /fallback handled empty primary/);
+		} finally {
+			rmSync(cwd, { recursive: true, force: true });
+		}
+	});
+});
+
+test("dispatch_agent retries fallback after final assistant error despite process exit 0", async () => {
+	await withFakePi(`
+const args = process.argv.slice(2);
+const model = args[args.indexOf('--model') + 1];
+if (model === 'fake/primary') {
+  console.log(JSON.stringify({ type: 'message_end', message: { role: 'assistant', stopReason: 'error', errorMessage: 'provider error: model overloaded' } }));
+  console.log(JSON.stringify({ type: 'agent_end', messages: [{ role: 'assistant', stopReason: 'error', errorMessage: 'provider error: model overloaded' }] }));
+  process.exit(0);
+}
+console.log(JSON.stringify({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'fallback ok' } }));
+console.log(JSON.stringify({ type: 'message_end', message: { role: 'assistant', stopReason: 'stop', content: 'fallback ok' } }));
+process.exit(0);
+`, async () => {
+		const extension = await loadExtension();
+		const cwd = mkdtempSync(join(tmpdir(), "pi-agents-final-error-fallback-"));
+		try {
+			writeAgentProject(cwd, "agents:\n  - scout:\n    model: fake/primary\n    fallback_model: fake/fallback\n");
+			execFileSync("git", ["init"], { cwd, stdio: "ignore" });
+			const stub = createPiStub();
+			extension(stub.pi);
+			await stub.startSession(cwd);
+			const tool = stub.getDispatchTool();
+			const ctx = { cwd, ui: { notify() {} }, model: { provider: "runtime", id: "model" } };
+
+			const result: any = await tool.execute("call", { agent: "scout", task: "x" }, undefined, undefined, ctx);
+
+			assert.equal(result.details.status, "done");
+			assert.equal(result.details.exitCode, 0);
+			assert.match(result.content[0].text, /retried with fallback_model fake\/fallback/);
+			assert.match(result.content[0].text, /fallback ok/);
+			assert.match(result.details.fullOutput, /Primary attempt diagnostic/);
+		} finally {
+			rmSync(cwd, { recursive: true, force: true });
+		}
+	});
 });
 
 test("agent discovery honors project config precedence and reports missing configured specialists", async () => {

@@ -10,6 +10,7 @@ export interface AgentWidgetInstance {
 	runCount: number
 	sessionFile: string | null
 	needsCompaction?: boolean
+	currentModel?: string | null
 }
 
 export interface AgentWidgetState {
@@ -415,14 +416,10 @@ export function renderAgentsWidget(
 	if (width <= 0) return ['']
 	const lines: string[] = []
 	const dispatcherState = dispatcher ?? { model: 'current Pi model', contextTokens: 0 }
-	const dispatcherFallback = dispatcherState.fallbackModel && dispatcherState.fallbackModel !== dispatcherState.model
-		? `↪ ${dispatcherState.fallbackModel}`
-		: ''
 	const dispatcherParts = [
 		colorCyan('◆ Dispatcher:'),
 		colorCyan(`🧠 ${tokensK(dispatcherState.contextTokens)}k`),
 		colorCyan(dispatcherState.model),
-		dispatcherFallback ? colorCyan(dispatcherFallback) : '',
 		thinkingText(dispatcherState.thinking) ? colorCyan(thinkingText(dispatcherState.thinking)) : '',
 	].filter(Boolean)
 	lines.push(fitLine(dispatcherParts.join(' '), width))
@@ -451,11 +448,11 @@ export function renderAgentsWidget(
 		const status = themed(theme, statusColor, statusIcon(instance.status))
 		const currentK = Math.max(0, Math.floor((state.maxCtx * (instance.contextPct || 0)) / 100))
 		const ctx = contextText(theme, instance.contextPct || 0, `🧠 ${currentK}k`)
-		const fallback = state.fallbackModel && state.fallbackModel !== state.model ? `↪ ${state.fallbackModel}` : ''
+		const activeModel = instance.currentModel || state.model
 		const model = themed(
 			theme,
 			'muted',
-			[state.model, fallback, thinkingText(state.thinking, { hideOff: true })].filter(Boolean).join(' '),
+			[activeModel, thinkingText(state.thinking, { hideOff: true })].filter(Boolean).join(' '),
 		)
 		const elapsed =
 			instance.status === 'running' || instance.elapsed > 0
