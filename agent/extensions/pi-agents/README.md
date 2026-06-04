@@ -128,7 +128,7 @@ Se nenhum `agents.yaml` existir, ou se o arquivo existir mas não produzir nenhu
 
 ## Schema de `agents.yaml`
 
-O parser espera um objeto no topo. `agents` contém a lista de especialistas; `runtime`, `auto_worktree` e `dispatcher` são opcionais e preservam o comportamento anterior quando omitidos. Cada item de `agents` pode ser um nome simples, um nome com campos, ou um nome cujo valor escalar é tratado como `model`.
+O parser espera um objeto no topo. `agents` contém a lista de especialistas; `runtime`, `auto_worktree` e `dispatcher` são opcionais. Quando `dispatcher` é omitido, o dispatcher recebe a tool base `dispatch_agent` e as tools seguras de context-mode registradas; demais integrações precisam ser declaradas em `dispatcher.integrations`. Cada item de `agents` pode ser um nome simples, um nome com campos, ou um nome cujo valor escalar é tratado como `model`.
 
 Schema lógico:
 
@@ -351,13 +351,10 @@ agents:
 
 ## Dispatcher e restrição de tools
 
-No evento `session_start`, a extensão substitui as tools ativas do agente principal por uma lista mínima resolvida a partir de defaults seguros e de `dispatcher.integrations`:
+No evento `session_start`, a extensão substitui as tools ativas do agente principal por uma lista mínima resolvida a partir de `dispatcher.integrations` em `agent/agents/agents.yaml`, com compatibilidade específica para context-mode:
 
 - `dispatch_agent` sempre fica ativa;
-- `tilldone` é preservada por default se já estiver ativa;
-- `sudo_exec` é preservada por default se já estiver ativa;
-- `ask_user_question` é ativada por default se existir, apenas para esclarecimentos ao usuário;
-- `cwd` é ativada por default se existir, apenas para consultar ou alterar diretório;
+- integrações não-context como `tilldone`, `sudo_exec`, `ask_user_question` e `cwd` só ficam ativas quando declaradas em `dispatcher.integrations` e passam os filtros de segurança;
 - tools seguras de context-mode continuam disponíveis quando registradas, preservando o comportamento anterior, exceto quando uma entrada em `dispatcher.integrations` controla explicitamente a mesma tool.
 
 O dispatcher não deve ler, escrever, buscar nem executar código diretamente. Ele deve decompor o pedido do usuário e delegar trabalho aos especialistas com `dispatch_agent`.
@@ -385,7 +382,7 @@ Semantics:
 - Access is resolved only when the tool exists/registered and passes safety filters.
 - Unsafe direct codebase tools cannot be granted: `read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`.
 - Dangerous context-mode tools are denied even if configured, including `ctx_purge` and `ctx_upgrade`.
-- When `dispatcher` is omitted, the extension keeps its backward-compatible defaults: `dispatch_agent` is active, the built-in safe integrations above are resolved as before, and safe registered context-mode tools remain available.
+- When `dispatcher` is omitted, `dispatch_agent` remains active and safe registered context-mode tools remain available; no non-context integrations or prompt sections are granted implicitly by the extension.
 
 Cada especialista é executado em um subprocesso. A extensão sempre passa o modelo da tentativa atual com `--model`; ela não depende de um argumento `--fallback-model` do Pi CLI:
 

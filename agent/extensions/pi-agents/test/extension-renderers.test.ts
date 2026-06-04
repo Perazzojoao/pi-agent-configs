@@ -52,7 +52,7 @@ test("status bar is refreshed from updateWidget", () => {
 	assert.match(source, /widgetCtx\.ui\.setStatus\("pi-agents", getStatusText\(\)\);/);
 });
 
-test("registered context-mode tools are included in dispatcher allowlist", () => {
+test("safe context-mode dispatcher tools are included in dispatcher allowlist", () => {
 	for (const toolName of [
 		"ctx_execute",
 		"ctx_execute_file",
@@ -70,8 +70,11 @@ test("registered context-mode tools are included in dispatcher allowlist", () =>
 	}
 	assert.match(source, /function updateDispatcherAllowlist\(\): string\[] \{/);
 	assert.match(source, /contextModeToolsEnabled = CONTEXT_MODE_TOOL_NAMES\.filter\(name => allToolNames\.includes\(name\)\);/);
+	assert.match(source, /contextModeToolsEnabled = contextModeToolsEnabled\.filter\(name => resolved\.tools\.includes\(name\)\);/);
 	assert.match(source, /allowedTools\.push\(\.\.\.contextModeToolsEnabled\);/);
 	assert.match(source, /dispatcherTools\.push\(\.\.\.contextModeToolsEnabled\);/);
+	assert.match(source, /Use context-mode tools for context preservation/);
+	assert.match(source, /Before dispatching agents to reread files or repeat broad exploration, use context-mode/);
 	assert.match(source, /pi\.on\("before_agent_start", async[\s\S]*?updateDispatcherAllowlist\(\);/);
 	assert.match(source, /pi\.on\("session_start", async[\s\S]*?const allowedTools = updateDispatcherAllowlist\(\);/);
 });
