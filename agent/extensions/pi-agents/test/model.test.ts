@@ -30,7 +30,8 @@ test("fallback model resolution uses agent fallback, runtime fallback, then sett
 	try {
 		writeFileSync(join(agentDir, "settings.json"), JSON.stringify({ defaultProvider: "settings", defaultModel: "default" }));
 
-		assert.equal(resolveFallbackModel({ fallbackModel: "agent/fallback" }, { agentDir, fallback_model: "runtime/fallback" }), "agent/fallback");
+		assert.equal(resolveFallbackModel({ fallbackModel: "agent/fallback" }, { agentDir, piAgentsRuntimeFallbackModel: "yaml/runtime-fallback", fallback_model: "runtime/fallback" }), "agent/fallback");
+		assert.equal(resolveFallbackModel({}, { agentDir, piAgentsRuntimeFallbackModel: "yaml/runtime-fallback", fallback_model: "runtime/fallback" }), "yaml/runtime-fallback");
 		assert.equal(resolveFallbackModel({}, { agentDir, fallback_model: "runtime/fallback" }), "runtime/fallback");
 		assert.equal(resolveFallbackModel({}, { agentDir }), "settings/default");
 		assert.equal(resolveDispatchModel({ fallbackModel: "agent/fallback" }, { agentDir }), "agent/fallback");

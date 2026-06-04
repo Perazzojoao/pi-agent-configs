@@ -136,6 +136,7 @@ Schema lógico:
 runtime:
   max_parallel_agents: 3          # opcional; limite global de dispatches simultâneos
   sessions_dir: .pi/agent-sessions # opcional; relativo ao cwd do projeto
+  fallback_model: <string>        # opcional; fallback global para agentes sem fallback próprio
 
 auto_worktree:
   base_dir: ../worktrees
@@ -157,7 +158,7 @@ Campos e valores padrão atuais:
 
 - `name` — obrigatório em cada item. Deve corresponder, sem diferenciar maiúsculas/minúsculas, ao `name` de um arquivo `.md` descoberto.
 - `model` — modelo primário usado pelo subprocesso `pi` do especialista. Precedência: `agents.yaml` (`agent.model`) > modelo runtime do Pi (`ctx.model.provider/ctx.model.id`).
-- `fallback_model` — modelo usado pela extensão em uma segunda tentativa quando o primário falha com sinais elegíveis no texto de falha do processo/erro. A documentação oficial/local/remota do Pi CLI não garante suporte a `--fallback-model`, portanto a extensão não passa esse argumento ao CLI; cada tentativa recebe apenas `--model <modelo-da-tentativa>`. Precedência: `agent.fallback_model` > `ctx.fallback_model`/`ctx.fallbackModel` > default dinâmico de `<ctx.agentDir>/settings.json` (`${defaultProvider}/${defaultModel}`) > fallback seguro final `openai-codex/gpt-5.5`.
+- `fallback_model` — modelo usado pela extensão em uma segunda tentativa quando o primário falha com sinais elegíveis no texto de falha do processo/erro. A documentação oficial/local/remota do Pi CLI não garante suporte a `--fallback-model`, portanto a extensão não passa esse argumento ao CLI; cada tentativa recebe apenas `--model <modelo-da-tentativa>`. Precedência: `agent.fallback_model` > `runtime.fallback_model` de `agents.yaml` > `ctx.fallback_model`/`ctx.fallbackModel` > default dinâmico de `<ctx.agentDir>/settings.json` (`${defaultProvider}/${defaultModel}`) > fallback seguro final `openai-codex/gpt-5.5`.
 - `effort` — valor passado para `--thinking`. Default: `off`.
 - `tools` — tools permitidas ao especialista. Aceita string separada por vírgulas, array inline (`[read, grep]`) ou lista YAML aninhada. Default em ordem de precedência: valor de `agents.yaml` > `tools` do frontmatter Markdown > `read,grep,find,ls`.
 - `context_mode` — perfil de context-mode para o especialista. Valores: `off`, `safe`, `exec`, `all`, `custom`; boolean `true` equivale a `safe` e `false` equivale a `off`. Default: `off`. Evite `all` como padrão; prefira `safe` ou `custom` com ferramentas mínimas.
@@ -166,6 +167,7 @@ Campos e valores padrão atuais:
 - `instances` — número máximo de instâncias paralelas do mesmo especialista; também define quantos slots de sessão locais são mantidos para ele. Default: `3`.
 - `runtime.max_parallel_agents` — limite global de dispatches simultâneos. Default: `3`.
 - `runtime.sessions_dir` — diretório de sessões JSON dos especialistas, relativo ao cwd do projeto quando não absoluto. Default: `.pi/agent-sessions`.
+- `runtime.fallback_model` — fallback global lido de `agents.yaml` e usado por todos os agentes que não definem `fallback_model` individual. Precedência efetiva do fallback: `agent.fallback_model` > `runtime.fallback_model` > `ctx.fallback_model`/`ctx.fallbackModel` > default dinâmico de `<ctx.agentDir>/settings.json` > fallback seguro final `openai-codex/gpt-5.5`.
 - `auto_worktree.base_dir` — diretório base das worktrees automáticas, relativo ao checkout base quando não absoluto. Default: `../worktrees`.
 - `auto_worktree.merge_resolution_dir` — subdiretório de resolução de merge dentro de `auto_worktree.base_dir`, ou caminho absoluto. Default: `merge-resolution`.
 
@@ -177,7 +179,7 @@ Quando `context_mode` é diferente de `off`, a extensão mescla as tools `ctx_*`
 
 ### Defaults de modelo em `settings.json`
 
-Quando nenhum `fallback_model` do agente nem fallback runtime (`ctx.fallback_model`/`ctx.fallbackModel`) é informado, a extensão lê `<ctx.agentDir>/settings.json` e monta o fallback dinâmico a partir de `defaultProvider/defaultModel`. Se o arquivo não existir, estiver inválido ou não tiver os dois campos, ela usa o fallback seguro final `openai-codex/gpt-5.5`.
+Quando nenhum `fallback_model` do agente, `runtime.fallback_model` de `agents.yaml`, nem fallback runtime do contexto (`ctx.fallback_model`/`ctx.fallbackModel`) é informado, a extensão lê `<ctx.agentDir>/settings.json` e monta o fallback dinâmico a partir de `defaultProvider/defaultModel`. Se o arquivo não existir, estiver inválido ou não tiver os dois campos, ela usa o fallback seguro final `openai-codex/gpt-5.5`.
 
 Formatos aceitos:
 

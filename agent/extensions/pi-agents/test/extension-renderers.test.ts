@@ -81,8 +81,9 @@ test("specialist context-mode configuration affects spawn args and missing exten
 	assert.match(source, /const tools = mergeToolLists\(baseTools, contextTools\);/);
 	assert.match(source, /findContextModeExtension\(ctx\.cwd\)[\s\S]*?planDispatchIsolation\(/);
 	assert.match(source, /"--no-extensions",\s*\.\.\.\(contextModeExtension \? \["-e", contextModeExtension\] : \[\]\),/s);
-	assert.match(source, /const primaryModel = resolvePrimaryModel\(agentState\.config, ctx\);/);
-	assert.match(source, /const fallbackModel = resolveFallbackModel\(agentState\.config, ctx\);/);
+	assert.match(source, /const modelCtx = getModelResolutionContext\(ctx\);/);
+	assert.match(source, /const primaryModel = resolvePrimaryModel\(agentState\.config, modelCtx\);/);
+	assert.match(source, /const fallbackModel = resolveFallbackModel\(agentState\.config, modelCtx\);/);
 	assert.doesNotMatch(source, /--fallback-model|cliSupportsFallbackModelFlag/);
 	assert.match(source, /\.\.\.buildModelArgs\(modelForAttempt\),/);
 	assert.match(source, /isModelFallbackEligibleFailure\(reason\)/);

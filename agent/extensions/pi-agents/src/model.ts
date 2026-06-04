@@ -35,7 +35,7 @@ export function getRuntimeModel(ctx: any): string {
 }
 
 export function getRuntimeFallbackModel(ctx: any): string {
-	return modelToString(ctx?.fallback_model ?? ctx?.fallbackModel);
+	return modelToString(ctx?.piAgentsRuntimeFallbackModel ?? ctx?.fallback_model ?? ctx?.fallbackModel);
 }
 
 export function resolvePrimaryModel(config: Pick<AgentConfig, "model">, ctx: any): string {

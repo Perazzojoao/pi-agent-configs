@@ -15,6 +15,7 @@ export interface AgentConfig {
 export interface RuntimeConfig {
 	maxParallelAgents: number;
 	sessionsDir: string;
+	fallbackModel?: string;
 }
 
 export interface AutoWorktreeConfig {
