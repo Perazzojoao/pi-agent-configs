@@ -68,16 +68,26 @@ test("widget applies requested labels, tree layout, context token estimate, and 
 	assert.match(plain, /\|    ↳ .*scan files/);
 });
 
-test("widget shows primary and fallback models without conflating them", () => {
-	const lines = renderAgentsWidget([state({
+test("widget renders only the current model field, using fallback as current model during retry", () => {
+	const primaryAttempt = renderAgentsWidget([state({
 		model: "agent/primary",
 		fallbackModel: "agent/fallback",
-		instances: [{ index: 1, status: "running", task: "scan files", lastWork: "", contextPct: 10, elapsed: 1000, runCount: 1, sessionFile: null }],
-	})], 220, {}, { model: "runtime/primary", fallbackModel: "runtime/fallback", contextTokens: 0 });
-	const plain = lines.map(stripAnsi).join("\n");
+		instances: [{ index: 1, status: "running", task: "scan files", lastWork: "", contextPct: 10, elapsed: 1000, runCount: 1, sessionFile: null, currentModel: "agent/primary" }],
+	})], 220, {}, { model: "runtime/primary", fallbackModel: "runtime/fallback", contextTokens: 0 }).map(stripAnsi).join("\n");
 
-	assert.match(plain, /^◆ Dispatcher: 🧠 0k runtime\/primary ↪ runtime\/fallback/);
-	assert.match(plain, /• agent\/primary ↪ agent\/fallback .*● running/);
+	assert.match(primaryAttempt, /^◆ Dispatcher: 🧠 0k runtime\/primary/);
+	assert.match(primaryAttempt, /• agent\/primary .*● running/);
+	assert.doesNotMatch(primaryAttempt, /↪/);
+
+	const fallbackAttempt = renderAgentsWidget([state({
+		model: "agent/primary",
+		fallbackModel: "agent/fallback",
+		instances: [{ index: 1, status: "running", task: "scan files", lastWork: "", contextPct: 10, elapsed: 1000, runCount: 1, sessionFile: null, currentModel: "agent/fallback" }],
+	})], 220, {}, { model: "runtime/primary", fallbackModel: "runtime/fallback", contextTokens: 0 }).map(stripAnsi).join("\n");
+
+	assert.match(fallbackAttempt, /^◆ Dispatcher: 🧠 0k runtime\/primary/);
+	assert.match(fallbackAttempt, /• agent\/fallback .*● running/);
+	assert.doesNotMatch(fallbackAttempt, /↪/);
 });
 
 test("widget hides specialist thinking when off and colors status with elapsed", () => {

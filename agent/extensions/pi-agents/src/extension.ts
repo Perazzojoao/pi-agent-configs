@@ -78,6 +78,7 @@ interface AgentInstanceState {
 	contextPct: number;
 	sessionFile: string | null;
 	runCount: number;
+	currentModel: string | null;
 	timer?: ReturnType<typeof setInterval>;
 }
 
@@ -141,6 +142,36 @@ function limitTextLines(value: string, maxChars = 4000, maxLines = 80): { lines:
 	const lineLimited = raw.length > maxLines;
 	const lines = raw.slice(0, maxLines);
 	return { lines, truncated: charLimited || lineLimited };
+}
+
+function textFromMessageContent(content: any): string {
+	if (!content) return "";
+	if (typeof content === "string") return content;
+	if (Array.isArray(content)) return content.map(textFromMessageContent).join("");
+	if (typeof content === "object") {
+		if (typeof content.text === "string") return content.text;
+		if (typeof content.content === "string") return content.content;
+		if (Array.isArray(content.content)) return textFromMessageContent(content.content);
+	}
+	return "";
+}
+
+function assistantStopReason(message: any, event?: any): string {
+	return String(message?.stopReason ?? message?.stop_reason ?? event?.stopReason ?? event?.stop_reason ?? "").trim();
+}
+
+function assistantErrorMessage(message: any, event?: any): string {
+	return String(message?.errorMessage ?? message?.error_message ?? message?.error?.message ?? event?.errorMessage ?? event?.error_message ?? event?.error?.message ?? "").trim();
+}
+
+function assistantFinalFailureDiagnostic(stopReason: string, errorMessage: string): string {
+	const normalized = stopReason.toLowerCase();
+	if (!errorMessage && !/error|abort/.test(normalized)) return "";
+	const parts = [
+		stopReason ? `stopReason=${stopReason}` : "",
+		errorMessage ? `errorMessage=${errorMessage}` : "",
+	].filter(Boolean).join(" ");
+	return `Specialist final assistant event indicated failure (${parts || "error/aborted"}).`;
 }
 
 function widthSafeRenderable(renderLines: (width: number) => string[]) {
@@ -376,6 +407,7 @@ export default function (pi: ExtensionAPI) {
 			contextPct: 0,
 			sessionFile: existsSync(sessionFile) ? sessionFile : null,
 			runCount: 0,
+			currentModel: null,
 		};
 	}
 
@@ -450,7 +482,6 @@ export default function (pi: ExtensionAPI) {
 				const usage = typeof widgetCtx.getContextUsage === "function" ? widgetCtx.getContextUsage() : undefined;
 				const dispatcher: DispatcherWidgetState = {
 					model: dispatcherModel,
-					fallbackModel: getFallbackModelLabel({}, modelCtx),
 					contextTokens: usage?.tokens ?? 0,
 					thinking: typeof pi.getThinkingLevel === "function" ? pi.getThinkingLevel() : "",
 				};
@@ -998,6 +1029,7 @@ ${cleanup.message}`;
 		instance.elapsed = 0;
 		instance.lastWork = "";
 		instance.contextPct = 0;
+		instance.currentModel = null;
 		instance.runCount++;
 		updateWidget();
 
@@ -1057,6 +1089,9 @@ ${cleanup.message}`;
 
 		const preRunStatus = getGitStatusSnapshot(runCwd);
 		let textChunks: string[] = [];
+		let hasMeaningfulAssistantOutput = false;
+		let finalAssistantStopReason = "";
+		let finalAssistantErrorMessage = "";
 		let fallbackRetryNote = "";
 		let primaryDiagnostic = "";
 		let fallbackRetryStarted = false;
@@ -1095,7 +1130,9 @@ ${cleanup.message}`;
 				if (event.type === "message_update") {
 					const delta = event.assistantMessageEvent;
 					if (delta?.type === "text_delta") {
-						textChunks.push(delta.delta || "");
+						const text = delta.delta || "";
+						textChunks.push(text);
+						if (text.trim()) hasMeaningfulAssistantOutput = true;
 						const full = textChunks.join("");
 						const last = full.split("\n").filter((l: string) => l.trim()).pop() || "";
 						instance.lastWork = last;
@@ -1106,6 +1143,15 @@ ${cleanup.message}`;
 					updateWidget();
 				} else if (event.type === "message_end") {
 					const msg = event.message;
+					if (msg?.role === "assistant") {
+						finalAssistantStopReason = assistantStopReason(msg, event) || finalAssistantStopReason;
+						finalAssistantErrorMessage = assistantErrorMessage(msg, event) || finalAssistantErrorMessage;
+						const messageText = textFromMessageContent(msg.content);
+						if (messageText.trim()) {
+							hasMeaningfulAssistantOutput = true;
+							if (textChunks.length === 0) textChunks.push(messageText);
+						}
+					}
 					if (msg?.usage && maxCtxTokens > 0) {
 						updateContextPct(extractContextTokens(msg.usage));
 						updateWidget();
@@ -1113,6 +1159,15 @@ ${cleanup.message}`;
 				} else if (event.type === "agent_end") {
 					const msgs = event.messages || [];
 					const last = [...msgs].reverse().find((m: any) => m.role === "assistant");
+					if (last) {
+						finalAssistantStopReason = assistantStopReason(last, event) || finalAssistantStopReason;
+						finalAssistantErrorMessage = assistantErrorMessage(last, event) || finalAssistantErrorMessage;
+						const messageText = textFromMessageContent(last.content);
+						if (messageText.trim()) {
+							hasMeaningfulAssistantOutput = true;
+							if (textChunks.length === 0) textChunks.push(messageText);
+						}
+					}
 					if (last?.usage && maxCtxTokens > 0) {
 						updateContextPct(extractContextTokens(last.usage));
 						updateWidget();
@@ -1122,6 +1177,11 @@ ${cleanup.message}`;
 
 			const runAttempt = (modelForAttempt: string, retried: boolean) => {
 				textChunks = [];
+				hasMeaningfulAssistantOutput = false;
+				finalAssistantStopReason = "";
+				finalAssistantErrorMessage = "";
+				instance.currentModel = modelForAttempt;
+				updateWidget();
 				let attemptDone = false;
 				let buffer = "";
 				let stdoutText = "";
@@ -1151,15 +1211,15 @@ ${cleanup.message}`;
 					stderrText += chunk;
 				});
 
-				const retryWithFallback = (reason: string) => {
+				const retryWithFallback = (reason: string, forceEligible = false) => {
 					if (fallbackRetryStarted || retried || !primaryModel || !fallbackModel || primaryModel === fallbackModel) return false;
-					// Retry eligibility intentionally uses process-level failure text only; assistant output is diagnostic only.
-					if (!isModelFallbackEligibleFailure(reason)) return false;
+					if (!forceEligible && !isModelFallbackEligibleFailure(reason)) return false;
 					fallbackRetryStarted = true;
 					primaryDiagnostic = [reason, stdoutText, textChunks.join("")].filter(Boolean).join("\n").trim().slice(0, 1200);
 					const shortReason = (reason.trim() || "model/provider failure").replace(/\s+/g, " ").slice(0, 240);
 					fallbackRetryNote = `Specialist primary model ${primaryModel} failed with a model/provider-like error (${shortReason}); retried with fallback_model ${fallbackModel}.`;
 					instance.status = "running";
+					instance.currentModel = fallbackModel;
 					instance.lastWork = fallbackRetryNote;
 					updateWidget();
 					runAttempt(fallbackModel, true);
@@ -1175,18 +1235,29 @@ ${cleanup.message}`;
 						} catch {}
 					}
 
-					if ((code ?? 1) !== 0 && retryWithFallback(stderrText || `exit ${code ?? 1}`)) return;
+					const exitCode = code ?? 1;
+					const finalEventDiagnostic = exitCode === 0 ? assistantFinalFailureDiagnostic(finalAssistantStopReason, finalAssistantErrorMessage) : "";
+					const emptyOutputDiagnostic = exitCode === 0 && !finalEventDiagnostic && !hasMeaningfulAssistantOutput
+						? "Specialist exited 0 but produced no meaningful assistant output."
+						: "";
+					const successOverrideDiagnostic = finalEventDiagnostic || emptyOutputDiagnostic;
+					const effectiveExitCode = successOverrideDiagnostic ? 1 : exitCode;
+
+					const shouldForceFallback = !!emptyOutputDiagnostic;
+					if (effectiveExitCode !== 0 && retryWithFallback([successOverrideDiagnostic, stderrText || `exit ${exitCode}`].filter(Boolean).join("\n"), shouldForceFallback)) return;
 
 					clearInterval(instance.timer);
 					instance.elapsed = Date.now() - startTime;
-					instance.status = code === 0 ? "done" : "error";
+					instance.status = effectiveExitCode === 0 ? "done" : "error";
+					instance.currentModel = null;
 
-					if (code === 0) {
+					if (effectiveExitCode === 0) {
 						instance.sessionFile = agentSessionFile;
 					}
 
 					const diagnosticNote = fallbackRetryNote && primaryDiagnostic ? `\n\nPrimary attempt diagnostic (truncated):\n${primaryDiagnostic}` : "";
-					const full = `${fallbackRetryNote ? `${fallbackRetryNote}${diagnosticNote}\n\n` : ""}${textChunks.join("")}`;
+					const attemptOutput = textChunks.join("") || successOverrideDiagnostic;
+					const full = `${fallbackRetryNote ? `${fallbackRetryNote}${diagnosticNote}\n\n` : ""}${attemptOutput}`;
 					instance.lastWork = full.split("\n").filter((l: string) => l.trim()).pop() || "";
 					updateWidget();
 
@@ -1196,7 +1267,7 @@ ${cleanup.message}`;
 						instance.status === "done" ? "success" : "error"
 					);
 
-					finish(full, code ?? 1);
+					finish(full, effectiveExitCode);
 				});
 
 				proc.on("error", (err) => {
@@ -1206,6 +1277,7 @@ ${cleanup.message}`;
 					clearInterval(instance.timer);
 					instance.elapsed = Date.now() - startTime;
 					instance.status = "error";
+					instance.currentModel = null;
 					instance.lastWork = `Error: ${err.message}`;
 					updateWidget();
 					const diagnosticNote = fallbackRetryNote && primaryDiagnostic ? `\n\nPrimary attempt diagnostic (truncated):\n${primaryDiagnostic}` : "";

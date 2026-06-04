@@ -21,7 +21,7 @@ test("parses real agent/agents/agents.yaml explicit defaults", () => {
 
 	assert.ok(byName.get("scout")?.model, "scout model is configured");
 	assert.equal(byName.get("scout")?.maxCtx, 150);
-	assert.equal(byName.get("planner")?.effort, "medium");
+	assert.equal(byName.get("planner")?.effort, "high");
 
 	for (const [name, config] of byName) {
 		assert.ok(config.effort, `${name} effort`);
