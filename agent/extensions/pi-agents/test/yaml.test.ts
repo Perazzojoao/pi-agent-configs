@@ -198,7 +198,7 @@ agents:
 	assert.ok(resolved.warnings.some(warning => warning.includes("some_registered_tool") && warning.includes("prompt text alone")));
 });
 
-test("dispatcher filters dangerous context tools from explicit and implicit allowlists", () => {
+test("dispatcher filters dangerous context tools and grants implicit safe context tools", () => {
 	const explicit = parseAgentsYamlConfig(`
 dispatcher:
   integrations:
@@ -217,9 +217,7 @@ agents:
 	assert.ok(!explicitResolved.promptSections.some(section => section.includes("Purge all context")));
 
 	const implicitResolved = resolveDispatcherIntegrations(undefined, ["ctx_search", "ctx_purge", "ctx_upgrade"], []);
-	assert.ok(implicitResolved.tools.includes("ctx_search"));
-	assert.ok(!implicitResolved.tools.includes("ctx_purge"));
-	assert.ok(!implicitResolved.tools.includes("ctx_upgrade"));
+	assert.deepEqual(implicitResolved.tools, ["dispatch_agent", "ctx_search"]);
 });
 
 test("parseAgentsYamlConfig defaults match existing runtime behavior", () => {

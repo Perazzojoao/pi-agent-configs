@@ -341,10 +341,6 @@ export default function (pi: ExtensionAPI) {
 	let dispatcherConfigWarnings: string[] = [];
 	let dispatcherToolsEnabled: string[] = ["dispatch_agent"];
 	let dispatcherPromptSections: string[] = [];
-	let tilldoneEnabled = false;
-	let sudoExecEnabled = false;
-	let askUserQuestionEnabled = false;
-	let cwdEnabled = false;
 	let contextModeToolsEnabled: string[] = [];
 
 	function loadAgents(cwd: string, ctx: any) {
@@ -456,10 +452,6 @@ export default function (pi: ExtensionAPI) {
 		const resolved = resolveDispatcherIntegrations(dispatcherConfig, allToolNames, currentlyActive);
 
 		dispatcherPromptSections = resolved.promptSections;
-		tilldoneEnabled = resolved.tools.includes("tilldone");
-		sudoExecEnabled = resolved.tools.includes("sudo_exec");
-		askUserQuestionEnabled = resolved.tools.includes("ask_user_question");
-		cwdEnabled = resolved.tools.includes("cwd");
 		contextModeToolsEnabled = CONTEXT_MODE_TOOL_NAMES.filter(name => allToolNames.includes(name));
 		contextModeToolsEnabled = contextModeToolsEnabled.filter(name => resolved.tools.includes(name));
 		dispatcherConfigWarnings = Array.from(new Set([...dispatcherConfigWarnings, ...resolved.warnings]));
@@ -1448,10 +1440,10 @@ ${cleanup.message}`;
 
 		return {
 			systemPrompt: `You are a dispatcher agent. You coordinate specialist agents to accomplish tasks.
-You do NOT have direct access to the codebase, except sudo_exec when enabled for privileged commands and cwd when enabled only to check or change the current directory. You MUST delegate implementation work to
+You do NOT have direct access to the codebase. You MUST delegate implementation work to
 specialists using the dispatch_agent tool.
 
-Available dispatcher tools: ${dispatcherTools.map(t => `\`${t}\``).join(", ")}.${askUserQuestionEnabled ? " ask_user_question may be used only for user clarification and never for codebase access." : ""}${contextModeToolsEnabled.length > 0 ? " Use context-mode tools for context preservation when processing large outputs, logs, test results, documentation, or other data-heavy content." : ""}
+Available dispatcher tools: ${dispatcherTools.map(t => `\`${t}\``).join(", ")}.${contextModeToolsEnabled.length > 0 ? " Use context-mode tools for context preservation when processing large outputs, logs, test results, documentation, or other data-heavy content." : ""}
 
 ## Available Specialists
 You can ONLY dispatch to the specialists listed below. Do not attempt to dispatch to other agents.
@@ -1474,7 +1466,7 @@ ${contextModeToolsEnabled.length > 0 ? "- Before dispatching agents to reread fi
 - Summarize the outcome for the user
 ${dispatcherIntegrationSections}
 ## Rules
-- NEVER try to read, write, or execute code directly — you have no such tools, except sudo_exec when enabled for privileged commands and cwd when enabled only to check or change the current directory
+- NEVER try to read, write, or execute code directly — you have no direct codebase tools
 - ALWAYS use dispatch_agent for implementation work
 - When writing code, comments, documentation, or tests, MUST always take the /skill:code-quality skill into account
 - You can chain specialists: use scout to explore, then builder to implement
@@ -1499,8 +1491,7 @@ ${agentCatalog}${dispatcherAppendSection}`,
 
 		loadAgents(_ctx.cwd, _ctx);
 
-		// Lock down codebase tools, but keep selected non-codebase tools.
-		// This also enables registered context-mode tools and safely omits them when unavailable.
+		// Lock down codebase tools while keeping only dispatcher integrations declared in agents.yaml.
 		const allowedTools = updateDispatcherAllowlist();
 
 		updateStatus();

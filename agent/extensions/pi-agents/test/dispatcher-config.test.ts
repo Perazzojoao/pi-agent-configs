@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { resolveDispatcherIntegrations } from "../src/dispatcher-config";
 import { parseAgentsYamlConfig } from "../src/yaml";
 
-test("dispatcher integration defaults preserve backward-compatible allowlist when config is omitted", () => {
+test("dispatcher integrations default to base dispatch plus safe context-mode tools when config is omitted", () => {
 	const resolved = resolveDispatcherIntegrations(
 		undefined,
 		["dispatch_agent", "ask_user_question", "cwd", "tilldone", "sudo_exec", "ctx_search"],
@@ -12,15 +12,13 @@ test("dispatcher integration defaults preserve backward-compatible allowlist whe
 	);
 
 	assert.deepEqual(resolved.warnings, []);
-	assert.ok(resolved.tools.includes("dispatch_agent"));
-	assert.ok(resolved.tools.includes("ask_user_question"), "auto default enables registered ask_user_question");
-	assert.ok(resolved.tools.includes("cwd"), "auto default enables registered cwd");
-	assert.ok(resolved.tools.includes("tilldone"), "preserve_active default keeps active tilldone");
-	assert.ok(!resolved.tools.includes("sudo_exec"), "preserve_active default does not newly grant inactive sudo_exec");
-	assert.ok(resolved.tools.includes("ctx_search"), "legacy context-mode allowlist is preserved when omitted");
-	assert.ok(resolved.promptSections.some(section => section.includes("Planner Clarification Flow")));
-	assert.ok(resolved.promptSections.some(section => section.includes("Current Directory")));
-	assert.ok(resolved.promptSections.some(section => section.includes("TillDone")));
+	assert.deepEqual(resolved.tools, ["dispatch_agent", "ctx_search"]);
+	assert.deepEqual(resolved.promptSections, []);
+	assert.deepEqual(resolved.enabledIntegrations, []);
+	assert.ok(!resolved.tools.includes("ask_user_question"));
+	assert.ok(!resolved.tools.includes("cwd"));
+	assert.ok(!resolved.tools.includes("tilldone"));
+	assert.ok(!resolved.tools.includes("sudo_exec"));
 });
 
 test("dispatcher integrations parse block prompts and enabled values", () => {
@@ -175,14 +173,21 @@ agents:
 	assert.ok(directResolved.warnings.some(warning => warning.includes("invalid enabled value")));
 });
 
-test("dangerous context tools are denied from explicit config and implicit legacy context allowlist", () => {
+test("dangerous context tools are denied while safe context tools remain implicit", () => {
 	const explicit = resolveDispatcherIntegrations(
-		{ integrations: { ctx_purge: { enabled: true }, ctx_upgrade: { enabled: true } } },
-		["dispatch_agent", "ctx_purge", "ctx_upgrade"],
+		{
+			integrations: {
+				ctx_search: { enabled: true, prompt: "Search indexed context." },
+				ctx_purge: { enabled: true },
+				ctx_upgrade: { enabled: true },
+			},
+		},
+		["dispatch_agent", "ctx_search", "ctx_purge", "ctx_upgrade"],
 		["ctx_purge", "ctx_upgrade"],
 	);
 
-	assert.deepEqual(explicit.tools, ["dispatch_agent"]);
+	assert.deepEqual(explicit.tools, ["dispatch_agent", "ctx_search"]);
+	assert.deepEqual(explicit.promptSections, ["Search indexed context."]);
 	assert.equal(explicit.warnings.filter(warning => warning.includes("Ignoring unsafe dispatcher integration")).length, 2);
 
 	const implicit = resolveDispatcherIntegrations(
@@ -191,7 +196,16 @@ test("dangerous context tools are denied from explicit config and implicit legac
 		["ctx_purge", "ctx_upgrade"],
 	);
 
-	assert.ok(implicit.tools.includes("ctx_search"));
-	assert.ok(!implicit.tools.includes("ctx_purge"));
-	assert.ok(!implicit.tools.includes("ctx_upgrade"));
+	assert.deepEqual(implicit.tools, ["dispatch_agent", "ctx_search"]);
+});
+
+test("explicit dispatcher config controls safe context tools", () => {
+	const disabled = resolveDispatcherIntegrations(
+		{ integrations: { ctx_search: { enabled: false, prompt: "disabled context prompt" } } },
+		["dispatch_agent", "ctx_search"],
+		["ctx_search"],
+	);
+
+	assert.deepEqual(disabled.tools, ["dispatch_agent"]);
+	assert.deepEqual(disabled.promptSections, []);
 });
